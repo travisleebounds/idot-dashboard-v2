@@ -270,7 +270,7 @@ if 'selected_item' not in st.session_state:
     st.session_state.selected_item = None
 
 # Navigation
-view = st.radio("Navigation", ["🗺️ Statewide Map", "📍 District View", "🚧 Live IDOT Map", "💰 Federal Funding", "📊 AI Analysis", "💎 Discretionary Grants", "🔮 FY27 Projections", "🤖 AV Policy"], horizontal=True)
+view = st.radio("Navigation", ["🗺️ Statewide Map", "📍 District View", "🚧 Live IDOT Map", "💰 Federal Funding", "📊 AI Analysis", "💎 Discretionary Grants", "🔮 FY27 Projections", "🏛️ IL General Assembly", "🤖 AV Policy"], horizontal=True)
 
 # STATEWIDE MAP
 if view == "🗺️ Statewide Map":
@@ -905,6 +905,46 @@ elif view == "💰 Federal Funding":
             st.dataframe(pd.DataFrame(district_details), width='stretch', hide_index=True, height=600)
         except:
             st.warning("⚠️ Run district allocation calculator for detailed breakdown")
+
+
+# ILLINOIS GENERAL ASSEMBLY
+elif view == "🏛️ IL General Assembly":
+    st.header("🏛️ Illinois General Assembly Transportation Tracker")
+    
+    try:
+        with open('illinois_general_assembly.json', 'r') as f:
+            ilga_data = json.load(f)
+        
+        st.markdown(f"### 104th General Assembly (2025-2026)")
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("State Senators", ilga_data['stats']['total_senators'])
+        col2.metric("State Representatives", ilga_data['stats']['total_representatives'])
+        col3.metric("Transport Bills", ilga_data['stats']['transport_bills'])
+        
+        st.markdown("---")
+        
+        tab1, tab2 = st.tabs(["📋 Bills", "👥 Legislators"])
+        
+        with tab1:
+            st.subheader("Transportation Bills (2025-2026 Session)")
+            
+            if ilga_data['transport_bills']:
+                for bill_id, bill in ilga_data['transport_bills'].items():
+                    with st.expander(f"{bill['number']}: {bill['title']}"):
+                        st.markdown(f"**Sponsor:** {bill['sponsor']}")
+                        st.markdown(f"**Status:** {bill['status']}")
+                        st.markdown(f"**Summary:** {bill['summary']}")
+            else:
+                st.info("No transportation bills tracked yet")
+        
+        with tab2:
+            st.subheader("Key Transportation Committee Members")
+            st.info("Coming soon: Full legislator directory with district overlap analysis")
+    
+    except:
+        st.error("⚠️ Illinois GA data not loaded. Run: python3 scrape_ilga.py")
+
 
 # AV POLICY
 elif view == "🤖 AV Policy":

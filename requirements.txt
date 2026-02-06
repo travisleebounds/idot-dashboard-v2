@@ -1,0 +1,9 @@
+streamlit
+pandas
+folium
+streamlit-folium
+altair
+requests
+beautifulsoup4
+PyPDF2
+lxml

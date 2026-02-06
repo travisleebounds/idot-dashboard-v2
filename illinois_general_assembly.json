@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "scraped_date": "2026-02-06T12:23:50.355810",
+    "source": "Illinois General Assembly",
+    "session": "104th General Assembly (2025-2026)"
+  },
+  "house": {},
+  "senate": {},
+  "transport_bills": {
+    "HB_2156": {
+      "number": "HB 2156",
+      "title": "Transportation Funding Omnibus",
+      "sponsor": "Rep. Marcus Evans",
+      "status": "Committee",
+      "summary": "Increases motor fuel tax and provides additional transportation funding"
+    },
+    "SB_1844": {
+      "number": "SB 1844",
+      "title": "High-Speed Rail Authority",
+      "sponsor": "Sen. Ram Villivalam",
+      "status": "Passed Senate",
+      "summary": "Creates authority to oversee high-speed rail development"
+    }
+  },
+  "stats": {
+    "total_senators": 59,
+    "total_representatives": 118,
+    "transport_bills": 2
+  }
+}

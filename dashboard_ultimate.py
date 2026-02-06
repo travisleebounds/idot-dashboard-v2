@@ -12,7 +12,7 @@ import glob
 from PIL import Image
 from pathlib import Path
 
-st.set_page_config(page_title="IDOT Ultimate Dashboard", page_icon="🚗", layout="wide")
+
 
 st.markdown("""
 <style>

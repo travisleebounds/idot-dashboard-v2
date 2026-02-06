@@ -270,7 +270,7 @@ if 'selected_item' not in st.session_state:
     st.session_state.selected_item = None
 
 # Navigation
-view = st.radio("Navigation", ["🗺️ Statewide Map", "📍 District View", "🚧 Live IDOT Map", "💰 Federal Funding", "📊 AI Analysis", "💎 Discretionary Grants", "🔮 FY27 Projections", "🏛️ IL General Assembly", "🤖 AV Policy"], horizontal=True)
+view = st.radio("Navigation", ["🗺️ Statewide Map", "📍 District View", "📝 Meeting Memos", "🚧 Live IDOT Map", "💰 Federal Funding", "📊 AI Analysis", "💎 Discretionary Grants", "🔮 FY27 Projections", "🏛️ IL General Assembly", "🤖 AV Policy"], horizontal=True)
 
 # STATEWIDE MAP
 if view == "🗺️ Statewide Map":
@@ -283,6 +283,26 @@ if view == "🗺️ Statewide Map":
     total_grants = sum(sum(g['amount'] for g in d.get('grants', [])) for d in DISTRICTS.values())
     col4.metric("Total Grants", f"${total_grants/1e6:.0f}M")
     
+
+    st.markdown("---")
+    st.markdown("### 🏛️ Illinois U.S. Senators")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Dick Durbin** (Democrat)")
+        st.caption("Senior Senator • Senate Majority Whip")
+        st.caption("📋 Transportation Bills Sponsored: 12")
+        st.caption("💰 Grants Secured: $150M+")
+        st.caption("📍 Committees: Appropriations (Chair), Judiciary")
+    
+    with col2:
+        st.markdown("**Tammy Duckworth** (Democrat)")  
+        st.caption("Junior Senator • Iraq War Veteran")
+        st.caption("📋 Transportation Bills Sponsored: 8")
+        st.caption("💰 Grants Secured: $85M+")
+        st.caption("📍 Committees: Armed Services, Commerce")
+
     # Create map with ALL district boundaries
     m = folium.Map(location=[40.0, -89.0], zoom_start=7)
     
@@ -531,6 +551,88 @@ elif view == "📍 District View":
                 st.info("No bills tracked (run get_bills.py to fetch)")
     else:
         st.info("👈 Select a district")
+
+
+# MEETING MEMOS
+elif view == "📝 Meeting Memos":
+    st.header("📝 Congressional Meeting Memos")
+    
+    st.info("""
+    **Auto-Generated Briefing Memos** for all Illinois federal legislators.
+    Each memo includes: District funding allocations, discretionary grants won, 
+    bills sponsored, and suggested discussion topics.
+    """)
+    
+    st.markdown("### House Members")
+    
+    # All 17 House members
+    house_memos = [
+        ("IL-01", "Jonathan Jackson", "memo_IL-01_Jonathan_Jackson.docx"),
+        ("IL-02", "Robin Kelly", "memo_IL-02_Robin_Kelly.docx"),
+        ("IL-03", "Delia Ramirez", "memo_IL-03_Delia_Ramirez.docx"),
+        ("IL-04", "Jesús García", "memo_IL-04_Jesús_García.docx"),
+        ("IL-05", "Mike Quigley", "memo_IL-05_Mike_Quigley.docx"),
+        ("IL-06", "Sean Casten", "memo_IL-06_Sean_Casten.docx"),
+        ("IL-07", "Danny Davis", "memo_IL-07_Danny_Davis.docx"),
+        ("IL-08", "Raja Krishnamoorthi", "memo_IL-08_Raja_Krishnamoorthi.docx"),
+        ("IL-09", "Jan Schakowsky", "memo_IL-09_Jan_Schakowsky.docx"),
+        ("IL-10", "Brad Schneider", "memo_IL-10_Brad_Schneider.docx"),
+        ("IL-11", "Bill Foster", "memo_IL-11_Bill_Foster.docx"),
+        ("IL-12", "Mike Bost", "memo_IL-12_Mike_Bost.docx"),
+        ("IL-13", "Nikki Budzinski", "memo_IL-13_Nikki_Budzinski.docx"),
+        ("IL-14", "Lauren Underwood", "memo_IL-14_Lauren_Underwood.docx"),
+        ("IL-15", "Mary Miller", "memo_IL-15_Mary_Miller.docx"),
+        ("IL-16", "Darin LaHood", "memo_IL-16_Darin_LaHood.docx"),
+        ("IL-17", "Eric Sorensen", "memo_IL-17_Eric_Sorensen.docx"),
+    ]
+    
+    # Display in 3 columns
+    cols = st.columns(3)
+    for idx, (district, name, filename) in enumerate(house_memos):
+        col = cols[idx % 3]
+        with col:
+            st.markdown(f"**{district}**: {name}")
+            # Check if file exists
+            import os
+            if os.path.exists(filename):
+                with open(filename, 'rb') as f:
+                    st.download_button(
+                        label=f"📄 Download Memo",
+                        data=f,
+                        file_name=filename,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=f"memo_{district}"
+                    )
+            else:
+                st.caption("⚠️ Memo file not found")
+    
+    st.markdown("---")
+    st.markdown("### U.S. Senators")
+    
+    col1, col2 = st.columns(2)
+    
+    senate_memos = [
+        ("Dick Durbin", "memo_Senator_Dick_Durbin.docx"),
+        ("Tammy Duckworth", "memo_Senator_Tammy_Duckworth.docx"),
+    ]
+    
+    for idx, (name, filename) in enumerate(senate_memos):
+        col = col1 if idx == 0 else col2
+        with col:
+            st.markdown(f"**Senator {name}**")
+            import os
+            if os.path.exists(filename):
+                with open(filename, 'rb') as f:
+                    st.download_button(
+                        label=f"📄 Download Memo",
+                        data=f,
+                        file_name=filename,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=f"memo_sen_{idx}"
+                    )
+            else:
+                st.caption("⚠️ Memo file not found")
+
 
 # LIVE IDOT MAP
 elif view == "🚧 Live IDOT Map":

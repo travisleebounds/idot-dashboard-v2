@@ -1,19 +1,16 @@
 import re
 import streamlit as st
 st.set_page_config(page_title="Illinois Transportation Dashboard", page_icon="🔱", layout="wide")
-st.caption("DEPLOY STAMP: app.py canonical")
-st.caption("DEPLOY STAMP: d07d288-check")
 import pandas as pd
 import folium
 from streamlit_folium import folium_static
 from datetime import datetime
-import subprocess
 import os
 import json
 import glob
 from PIL import Image
 from pathlib import Path
-
+import altair as alt
 
 
 st.markdown("""
@@ -51,17 +48,6 @@ st.markdown("""
     .preview-box a:hover {
         text-decoration: underline;
     }
-    .clickable-item {
-        cursor: pointer;
-        padding: 8px;
-        margin: 5px 0;
-        border-radius: 3px;
-        background-color: #ffffff;
-        border: 1px solid #ddd;
-    }
-    .clickable-item:hover {
-        background-color: #e8f4f8;
-    }
     .district-ref-image {
         border: 2px solid #ddd;
         border-radius: 8px;
@@ -94,7 +80,6 @@ else:
 def load_idot_data():
     """Load IDOT construction/closure data from JSON if available"""
     try:
-        # Look for most recent IDOT data file
         idot_files = glob.glob("idot_dynamic_*.json")
         if idot_files:
             latest = sorted(idot_files)[-1]
@@ -106,7 +91,7 @@ def load_idot_data():
 
 idot_live_data = load_idot_data()
 
-# District data with BOUNDARIES
+# District data
 DISTRICTS = {
     "IL-01": {
         "rep": "Jonathan Jackson", "party": "D", "area": "Chicago South Side", 
@@ -117,7 +102,6 @@ DISTRICTS = {
         "construction": [{"route": "I-94", "location": "95th Street", "type": "Bridge replacement", "status": "Active", "lat": 41.7220, "lon": -87.6246, "description": "Bridge deck replacement and lane reconfiguration project - 18 month timeline", "url": "https://www.gettingaroundillinois.com/", "budget": "$8.5M", "timeline": "2024-2026"}],
         "grants": [{"program": "RAISE", "amount": 15000000, "project": "Red Line Extension", "lat": 41.7220, "lon": -87.6246, "description": "CTA Red Line extension to 130th Street", "url": "https://www.transportation.gov/RAISEgrants"}]
     },
-    
     "IL-02": {
         "rep": "Robin Kelly", "party": "D", "area": "South suburbs", 
         "lat": 41.5992, "lon": -87.6772,
@@ -127,7 +111,6 @@ DISTRICTS = {
         "construction": [{"route": "I-57", "location": "Matteson", "type": "Resurfacing", "status": "Planned Q2 2026", "lat": 41.5039, "lon": -87.7323, "description": "Interstate resurfacing and shoulder widening project", "url": "https://idot.illinois.gov/", "budget": "$12M", "timeline": "2026-2027"}],
         "grants": [{"program": "INFRA", "amount": 12500000, "project": "Lincoln Highway Corridor", "lat": 41.5039, "lon": -87.7323, "description": "Safety and capacity improvements on US-30", "url": "https://www.transportation.gov/INFRAgrants"}]
     },
-    
     "IL-03": {
         "rep": "Delia Ramirez", "party": "D", "area": "Northwest Chicago", 
         "lat": 41.9208, "lon": -87.8084,
@@ -137,16 +120,15 @@ DISTRICTS = {
         "construction": [{"route": "I-90", "location": "Kennedy Expressway", "type": "Bridge repair", "status": "Active", "lat": 41.9742, "lon": -87.9073, "description": "Structural repairs to Kennedy Expressway bridges - multi-year project", "url": "https://www.gettingaroundillinois.com/", "budget": "$45M", "timeline": "2024-2027"}],
         "grants": [{"program": "CRISI", "amount": 35000000, "project": "Milwaukee District North Line", "lat": 41.9742, "lon": -87.9073, "description": "Metra line capacity and safety upgrades", "url": "https://railroads.dot.gov/grants-loans/crisi"}]
     },
-    
     "IL-04": {
         "rep": "Jesús García", "party": "D", "area": "Southwest Chicago", 
         "lat": 41.8370, "lon": -87.7446,
         "committees": ["Financial Services", "Transportation"],
         "boundary": [[41.7000, -87.8500], [41.7000, -87.6000], [41.9000, -87.6000], [41.9000, -87.8500], [41.7000, -87.8500]],
-        "closures": [{"route": "Cicero Ave", "location": "26th Street", "type": "Complete streets", "status": "Design", "lat": 41.8370, "lon": -87.7446, "description": "Complete streets redesign with transit priority lanes", "url": "https://www.chicago.gov/"}], "construction": [],
+        "closures": [{"route": "Cicero Ave", "location": "26th Street", "type": "Complete streets", "status": "Design", "lat": 41.8370, "lon": -87.7446, "description": "Complete streets redesign with transit priority lanes", "url": "https://www.chicago.gov/"}],
+        "construction": [],
         "grants": [{"program": "RAISE", "amount": 18000000, "project": "Cicero Multimodal Corridor", "lat": 41.8370, "lon": -87.7446, "description": "Multimodal improvements on Cicero Avenue", "url": "https://www.transportation.gov/RAISEgrants"}]
     },
-    
     "IL-05": {
         "rep": "Mike Quigley", "party": "D", "area": "North Chicago", 
         "lat": 41.9534, "lon": -87.6981,
@@ -154,7 +136,6 @@ DISTRICTS = {
         "boundary": [[41.9000, -87.8000], [41.9000, -87.6000], [42.0500, -87.6000], [42.0500, -87.8000], [41.9000, -87.8000]],
         "closures": [], "construction": [], "grants": []
     },
-    
     "IL-06": {
         "rep": "Sean Casten", "party": "D", "area": "Western suburbs", 
         "lat": 41.8256, "lon": -88.0814,
@@ -162,7 +143,6 @@ DISTRICTS = {
         "boundary": [[41.7000, -88.3000], [41.7000, -87.9000], [41.9500, -87.9000], [41.9500, -88.3000], [41.7000, -88.3000]],
         "closures": [], "construction": [], "grants": []
     },
-    
     "IL-07": {
         "rep": "Danny Davis", "party": "D", "area": "West Chicago", 
         "lat": 41.8781, "lon": -87.6298,
@@ -170,7 +150,6 @@ DISTRICTS = {
         "boundary": [[41.8000, -87.7500], [41.8000, -87.5500], [41.9500, -87.5500], [41.9500, -87.7500], [41.8000, -87.7500]],
         "closures": [], "construction": [], "grants": []
     },
-    
     "IL-08": {
         "rep": "Raja Krishnamoorthi", "party": "D", "area": "Northwest suburbs", 
         "lat": 42.0883, "lon": -88.1357,
@@ -178,7 +157,6 @@ DISTRICTS = {
         "boundary": [[42.0000, -88.4000], [42.0000, -87.9000], [42.2500, -87.9000], [42.2500, -88.4000], [42.0000, -88.4000]],
         "closures": [], "construction": [], "grants": []
     },
-    
     "IL-09": {
         "rep": "Jan Schakowsky", "party": "D", "area": "North suburbs", 
         "lat": 42.0450, "lon": -87.6877,
@@ -186,7 +164,6 @@ DISTRICTS = {
         "boundary": [[42.0000, -87.8500], [42.0000, -87.5500], [42.2000, -87.5500], [42.2000, -87.8500], [42.0000, -87.8500]],
         "closures": [], "construction": [], "grants": []
     },
-    
     "IL-10": {
         "rep": "Brad Schneider", "party": "D", "area": "Lake County", 
         "lat": 42.3369, "lon": -87.8658,
@@ -194,16 +171,15 @@ DISTRICTS = {
         "boundary": [[42.1500, -88.2000], [42.1500, -87.6500], [42.5000, -87.6500], [42.5000, -88.2000], [42.1500, -88.2000]],
         "closures": [], "construction": [], "grants": []
     },
-    
     "IL-11": {
         "rep": "Bill Foster", "party": "D", "area": "Aurora/Joliet", 
         "lat": 41.5253, "lon": -88.1473,
         "committees": ["Financial Services", "Science"],
         "boundary": [[41.3500, -88.5000], [41.3500, -87.8500], [41.7000, -87.8500], [41.7000, -88.5000], [41.3500, -88.5000]],
-        "closures": [{"route": "I-80", "location": "Joliet", "type": "Freight facility", "status": "Construction", "lat": 41.5250, "lon": -88.0817, "description": "Grade separations and access improvements for intermodal facility", "url": "https://www.transportation.gov/INFRAgrants"}], "construction": [],
+        "closures": [{"route": "I-80", "location": "Joliet", "type": "Freight facility", "status": "Construction", "lat": 41.5250, "lon": -88.0817, "description": "Grade separations and access improvements for intermodal facility", "url": "https://www.transportation.gov/INFRAgrants"}],
+        "construction": [],
         "grants": [{"program": "INFRA", "amount": 45000000, "project": "I-80 Intermodal Access", "lat": 41.5250, "lon": -88.0817, "description": "Freight corridor improvements and intermodal connections", "url": "https://www.transportation.gov/INFRAgrants"}]
     },
-    
     "IL-12": {
         "rep": "Mike Bost", "party": "R", "area": "Southern Illinois", 
         "lat": 38.1406, "lon": -89.2645,
@@ -212,7 +188,6 @@ DISTRICTS = {
         "closures": [], "construction": [],
         "grants": [{"program": "RAISE", "amount": 22000000, "project": "MetroLink Eastside Center", "lat": 38.6247, "lon": -90.1848, "description": "New transit center with parking and bus connections", "url": "https://www.transportation.gov/RAISEgrants"}]
     },
-    
     "IL-13": {
         "rep": "Nikki Budzinski", "party": "D", "area": "Central Illinois", 
         "lat": 39.8403, "lon": -88.9548,
@@ -227,7 +202,6 @@ DISTRICTS = {
             {"program": "INFRA", "amount": 25000000, "project": "I-72 Freight Corridor", "lat": 39.9064, "lon": -88.6548, "description": "Highway improvements for agricultural freight movement", "url": "https://www.transportation.gov/INFRAgrants"}
         ]
     },
-    
     "IL-14": {
         "rep": "Lauren Underwood", "party": "D", "area": "Far west suburbs", 
         "lat": 41.7606, "lon": -88.5855,
@@ -235,7 +209,6 @@ DISTRICTS = {
         "boundary": [[41.5000, -88.9000], [41.5000, -88.3000], [41.9500, -88.3000], [41.9500, -88.9000], [41.5000, -88.9000]],
         "closures": [], "construction": [], "grants": []
     },
-    
     "IL-15": {
         "rep": "Mary Miller", "party": "R", "area": "Eastern Illinois", 
         "lat": 40.1164, "lon": -88.2434,
@@ -243,7 +216,6 @@ DISTRICTS = {
         "boundary": [[39.0000, -88.5000], [39.0000, -87.5000], [40.5000, -87.5000], [40.5000, -88.5000], [39.0000, -88.5000]],
         "closures": [], "construction": [], "grants": []
     },
-    
     "IL-16": {
         "rep": "Darin LaHood", "party": "R", "area": "Peoria/Rockford", 
         "lat": 40.6936, "lon": -89.5890,
@@ -252,7 +224,6 @@ DISTRICTS = {
         "closures": [], "construction": [],
         "grants": [{"program": "RAISE", "amount": 20000000, "project": "Peoria Warehouse District", "lat": 40.6936, "lon": -89.5890, "description": "Roadway and river port access improvements", "url": "https://www.transportation.gov/RAISEgrants"}]
     },
-    
     "IL-17": {
         "rep": "Eric Sorensen", "party": "D", "area": "Quad Cities", 
         "lat": 41.5067, "lon": -90.5151,
@@ -269,10 +240,16 @@ if 'selected_district' not in st.session_state:
 if 'selected_item' not in st.session_state:
     st.session_state.selected_item = None
 
-# Navigation
-view = st.radio("Navigation", ["🗺️ Statewide Map", "📍 District View", "📝 Meeting Memos", "🚧 Live IDOT Map", "💰 Federal Funding", "📊 AI Analysis", "💎 Discretionary Grants", "🔮 FY27 Projections", "🏛️ IL General Assembly", "🤖 AV Policy"], horizontal=True)
+# Navigation — removed Live IDOT Map (iframe doesn't work reliably)
+view = st.radio(
+    "Navigation",
+    ["🗺️ Statewide Map", "📍 District View", "📝 Meeting Memos",
+     "💰 Federal Funding", "📊 AI Analysis", "💎 Discretionary Grants",
+     "🔮 FY27 Projections", "🏛️ IL General Assembly", "🤖 AV Policy"],
+    horizontal=True
+)
 
-# STATEWIDE MAP
+# ==================== STATEWIDE MAP ====================
 if view == "🗺️ Statewide Map":
     st.header("Illinois - All 17 Congressional Districts")
     
@@ -282,7 +259,6 @@ if view == "🗺️ Statewide Map":
     col3.metric("Republicans", "3")
     total_grants = sum(sum(g['amount'] for g in d.get('grants', [])) for d in DISTRICTS.values())
     col4.metric("Total Grants", f"${total_grants/1e6:.0f}M")
-    
 
     st.markdown("---")
     st.markdown("### 🏛️ Illinois U.S. Senators")
@@ -309,17 +285,13 @@ if view == "🗺️ Statewide Map":
     for district_id, info in DISTRICTS.items():
         color = '#4A90E2' if info['party'] == 'D' else '#E24A4A'
         
-        # Use REAL GeoJSON boundaries if available
         if district_id in DISTRICT_BOUNDARIES:
             boundary_data = DISTRICT_BOUNDARIES[district_id]
             coords = boundary_data['geometry']['coordinates'][0]
-            # Convert from [lon, lat] to [lat, lon] for Folium
             folium_coords = [[lat, lon] for lon, lat in coords]
         else:
-            # Fallback to simple boundary if GeoJSON not available
             folium_coords = info.get('boundary', [])
         
-        # Add district BOUNDARY polygon
         folium.Polygon(
             locations=folium_coords,
             color=color,
@@ -330,9 +302,7 @@ if view == "🗺️ Statewide Map":
             popup=f"<b>{district_id}: {info['rep']} ({info['party']})</b><br>{info['area']}"
         ).add_to(m)
         
-        # Add district center marker
         n_closures = len(info.get('closures', []))
-        n_grants = len(info.get('grants', []))
         grant_total = sum(g['amount'] for g in info.get('grants', []))
         
         popup = f"<b>{district_id}: {info['rep']} ({info['party']})</b><br>{info['area']}<br><br>🚧 Closures: {n_closures}<br>💰 Grants: ${grant_total:,}"
@@ -344,7 +314,6 @@ if view == "🗺️ Statewide Map":
             icon=folium.Icon(color='blue' if info['party'] == 'D' else 'red', icon='info-sign')
         ).add_to(m)
         
-        # Add project markers
         for closure in info.get('closures', []):
             folium.CircleMarker([closure['lat'], closure['lon']], radius=6, color='orange', fill=True, popup=f"🚧 {closure['route']}").add_to(m)
         
@@ -353,8 +322,10 @@ if view == "🗺️ Statewide Map":
     
     folium_static(m, width=1400, height=600)
     
+    st.caption("ℹ️ Hover over markers for district info. Popups show details on click. Use the buttons below to jump to a district.")
+    
     st.markdown("---")
-    st.subheader("Click a District")
+    st.subheader("Select a District")
     
     cols = st.columns(6)
     for idx, district_id in enumerate(sorted(DISTRICTS.keys())):
@@ -363,7 +334,26 @@ if view == "🗺️ Statewide Map":
             st.session_state.selected_district = district_id
             st.rerun()
 
-# DISTRICT VIEW
+    # District summary table
+    st.markdown("---")
+    st.subheader("📋 All Districts at a Glance")
+    summary_data = []
+    for d_id in sorted(DISTRICTS.keys()):
+        d = DISTRICTS[d_id]
+        grant_total = sum(g['amount'] for g in d.get('grants', []))
+        summary_data.append({
+            'District': d_id,
+            'Representative': d['rep'],
+            'Party': d['party'],
+            'Area': d['area'],
+            'Closures': len(d.get('closures', [])),
+            'Construction': len(d.get('construction', [])),
+            'Grants': f"${grant_total/1e6:.1f}M" if grant_total > 0 else "—",
+            'Committees': ', '.join(d['committees'])
+        })
+    st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True, height=630)
+
+# ==================== DISTRICT VIEW ====================
 elif view == "📍 District View":
     st.sidebar.title("Select District")
     for district_id in sorted(DISTRICTS.keys()):
@@ -374,16 +364,14 @@ elif view == "📍 District View":
     
     if st.session_state.selected_district:
         district = st.session_state.selected_district
-        info = DISTRICTS[district].copy()  # Make a copy to avoid modifying original
+        info = DISTRICTS[district].copy()
         
         # Merge in live IDOT data if available
         if district in idot_live_data:
             live_data = idot_live_data[district]
-            # Append live closures and construction to existing data
             info['closures'] = info.get('closures', []) + live_data.get('closures', [])
             info['construction'] = info.get('construction', []) + live_data.get('construction', [])
         
-        # Two column layout: Info on left, Reference Map on right
         col_info, col_map_ref = st.columns([2, 1])
         
         with col_info:
@@ -392,7 +380,6 @@ elif view == "📍 District View":
             st.markdown(f"**Committees:** {', '.join(info['committees'])}")
         
         with col_map_ref:
-            # Display reference map image
             img_path = f'district_images/{district}.png'
             if os.path.exists(img_path):
                 img = Image.open(img_path)
@@ -411,27 +398,22 @@ elif view == "📍 District View":
         
         st.markdown("---")
         
-        # District map WITH REAL BOUNDARY
-        # Use real GeoJSON boundary if available
+        # District map
         if district in DISTRICT_BOUNDARIES:
             boundary_data = DISTRICT_BOUNDARIES[district]
             coords = boundary_data['geometry']['coordinates'][0]
-            # Calculate center from coordinates
             lons = [c[0] for c in coords]
             lats = [c[1] for c in coords]
             center_lat = sum(lats) / len(lats)
             center_lon = sum(lons) / len(lons)
-            # Convert to Folium format
             folium_coords = [[lat, lon] for lon, lat in coords]
         else:
-            # Fallback to info location and simple boundary
             center_lat = info['lat']
             center_lon = info['lon']
             folium_coords = info.get('boundary', [])
         
         dm = folium.Map(location=[center_lat, center_lon], zoom_start=10)
         
-        # Add boundary polygon with proper colors
         color = '#4A90E2' if info['party'] == 'D' else '#E24A4A'
         folium.Polygon(
             locations=folium_coords,
@@ -443,7 +425,6 @@ elif view == "📍 District View":
             popup=f"<b>{district} Boundary</b>"
         ).add_to(dm)
         
-        # Add markers
         for closure in info.get('closures', []):
             folium.Marker([closure['lat'], closure['lon']], icon=folium.Icon(color='orange', icon='road', prefix='fa'), popup=f"🚧 {closure['route']}").add_to(dm)
         
@@ -454,7 +435,7 @@ elif view == "📍 District View":
         
         st.markdown("---")
         
-        # Tabs with CLICKABLE items
+        # Tabs with clickable items
         tab1, tab2, tab3, tab4 = st.tabs(["🚧 Closures", "🏗️ Construction", "💰 Grants", "📜 Legislation"])
         
         with tab1:
@@ -464,19 +445,19 @@ elif view == "📍 District View":
                     if st.button(f"🚧 {closure['route']} - {closure['location']} ({closure['status']})", key=f"closure_{idx}", use_container_width=True):
                         st.session_state.selected_item = ('closure', idx)
                 
-                # Preview box
                 if st.session_state.selected_item and st.session_state.selected_item[0] == 'closure':
                     idx = st.session_state.selected_item[1]
-                    c = info['closures'][idx]
-                    st.markdown(f"""
-                    <div class="preview-box">
-                        <h4>🚧 {c['route']} - {c['location']}</h4>
-                        <p><strong>Type:</strong> {c['type']}</p>
-                        <p><strong>Status:</strong> {c['status']}</p>
-                        <p><strong>Description:</strong> {c['description']}</p>
-                        <p><a href="{c['url']}" target="_blank">🔗 View Source</a></p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    if idx < len(info['closures']):
+                        c = info['closures'][idx]
+                        st.markdown(f"""
+                        <div class="preview-box">
+                            <h4>🚧 {c['route']} - {c['location']}</h4>
+                            <p><strong>Type:</strong> {c['type']}</p>
+                            <p><strong>Status:</strong> {c['status']}</p>
+                            <p><strong>Description:</strong> {c['description']}</p>
+                            <p><a href="{c['url']}" target="_blank">🔗 View Source</a></p>
+                        </div>
+                        """, unsafe_allow_html=True)
             else:
                 st.info("No active closures")
         
@@ -487,21 +468,21 @@ elif view == "📍 District View":
                     if st.button(f"🏗️ {construction['route']} - {construction['location']} ({construction['status']})", key=f"construction_{idx}", use_container_width=True):
                         st.session_state.selected_item = ('construction', idx)
                 
-                # Preview box
                 if st.session_state.selected_item and st.session_state.selected_item[0] == 'construction':
                     idx = st.session_state.selected_item[1]
-                    c = info['construction'][idx]
-                    st.markdown(f"""
-                    <div class="preview-box">
-                        <h4>🏗️ {c['route']} - {c['location']}</h4>
-                        <p><strong>Type:</strong> {c['type']}</p>
-                        <p><strong>Status:</strong> {c['status']}</p>
-                        <p><strong>Budget:</strong> {c.get('budget', 'N/A')}</p>
-                        <p><strong>Timeline:</strong> {c.get('timeline', 'N/A')}</p>
-                        <p><strong>Description:</strong> {c['description']}</p>
-                        <p><a href="{c['url']}" target="_blank">🔗 View Project Details</a></p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    if idx < len(info['construction']):
+                        c = info['construction'][idx]
+                        st.markdown(f"""
+                        <div class="preview-box">
+                            <h4>🏗️ {c['route']} - {c['location']}</h4>
+                            <p><strong>Type:</strong> {c['type']}</p>
+                            <p><strong>Status:</strong> {c['status']}</p>
+                            <p><strong>Budget:</strong> {c.get('budget', 'N/A')}</p>
+                            <p><strong>Timeline:</strong> {c.get('timeline', 'N/A')}</p>
+                            <p><strong>Description:</strong> {c['description']}</p>
+                            <p><a href="{c['url']}" target="_blank">🔗 View Project Details</a></p>
+                        </div>
+                        """, unsafe_allow_html=True)
             else:
                 st.info("No active construction projects")
         
@@ -512,48 +493,48 @@ elif view == "📍 District View":
                     if st.button(f"💰 {grant['program']}: ${grant['amount']:,} - {grant['project']}", key=f"grant_{idx}", use_container_width=True):
                         st.session_state.selected_item = ('grant', idx)
                 
-                # Preview box
                 if st.session_state.selected_item and st.session_state.selected_item[0] == 'grant':
                     idx = st.session_state.selected_item[1]
-                    g = info['grants'][idx]
-                    st.markdown(f"""
-                    <div class="preview-box">
-                        <h4>💰 {g['program']}: ${g['amount']:,}</h4>
-                        <p><strong>Project:</strong> {g['project']}</p>
-                        <p><strong>Description:</strong> {g['description']}</p>
-                        <p><a href="{g['url']}" target="_blank">🔗 View Program Details</a></p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    if idx < len(info['grants']):
+                        g = info['grants'][idx]
+                        st.markdown(f"""
+                        <div class="preview-box">
+                            <h4>💰 {g['program']}: ${g['amount']:,}</h4>
+                            <p><strong>Project:</strong> {g['project']}</p>
+                            <p><strong>Description:</strong> {g['description']}</p>
+                            <p><a href="{g['url']}" target="_blank">🔗 View Program Details</a></p>
+                        </div>
+                        """, unsafe_allow_html=True)
             else:
                 st.info("No grants")
         
         with tab4:
             if district_bills:
                 st.markdown("**Click any item for details:**")
-                for idx, bill in enumerate(district_bills[:20]):  # Show first 20
+                for idx, bill in enumerate(district_bills[:20]):
                     if st.button(f"📜 {bill.get('number', 'N/A')} - {bill.get('title', 'No title')[:80]}...", key=f"bill_{idx}", use_container_width=True):
                         st.session_state.selected_item = ('bill', idx)
                 
-                # Preview box
                 if st.session_state.selected_item and st.session_state.selected_item[0] == 'bill':
                     idx = st.session_state.selected_item[1]
-                    b = district_bills[idx]
-                    bill_url = b.get('url', f"https://www.congress.gov/search?q={b.get('number', '')}")
-                    st.markdown(f"""
-                    <div class="preview-box">
-                        <h4>📜 {b.get('number', 'N/A')}</h4>
-                        <p><strong>Title:</strong> {b.get('title', 'No title')}</p>
-                        <p><strong>Relationship:</strong> {b.get('relationship', 'Unknown')}</p>
-                        <p><a href="{bill_url}" target="_blank">🔗 View on Congress.gov</a></p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    if idx < len(district_bills):
+                        b = district_bills[idx]
+                        bill_url = b.get('url', f"https://www.congress.gov/search?q={b.get('number', '')}")
+                        st.markdown(f"""
+                        <div class="preview-box">
+                            <h4>📜 {b.get('number', 'N/A')}</h4>
+                            <p><strong>Title:</strong> {b.get('title', 'No title')}</p>
+                            <p><strong>Relationship:</strong> {b.get('relationship', 'Unknown')}</p>
+                            <p><a href="{bill_url}" target="_blank">🔗 View on Congress.gov</a></p>
+                        </div>
+                        """, unsafe_allow_html=True)
             else:
                 st.info("No bills tracked (run get_bills.py to fetch)")
     else:
-        st.info("👈 Select a district")
+        st.info("👈 Select a district from the sidebar")
 
 
-# MEETING MEMOS
+# ==================== MEETING MEMOS ====================
 elif view == "📝 Meeting Memos":
     st.header("📝 Congressional Meeting Memos")
     
@@ -565,7 +546,6 @@ elif view == "📝 Meeting Memos":
     
     st.markdown("### House Members")
     
-    # All 17 House members
     house_memos = [
         ("IL-01", "Jonathan Jackson", "memo_IL-01_Jonathan_Jackson.docx"),
         ("IL-02", "Robin Kelly", "memo_IL-02_Robin_Kelly.docx"),
@@ -586,14 +566,11 @@ elif view == "📝 Meeting Memos":
         ("IL-17", "Eric Sorensen", "memo_IL-17_Eric_Sorensen.docx"),
     ]
     
-    # Display in 3 columns
     cols = st.columns(3)
     for idx, (district, name, filename) in enumerate(house_memos):
         col = cols[idx % 3]
         with col:
             st.markdown(f"**{district}**: {name}")
-            # Check if file exists
-            import os
             if os.path.exists(filename):
                 with open(filename, 'rb') as f:
                     st.download_button(
@@ -620,7 +597,6 @@ elif view == "📝 Meeting Memos":
         col = col1 if idx == 0 else col2
         with col:
             st.markdown(f"**Senator {name}**")
-            import os
             if os.path.exists(filename):
                 with open(filename, 'rb') as f:
                     st.download_button(
@@ -634,286 +610,9 @@ elif view == "📝 Meeting Memos":
                 st.caption("⚠️ Memo file not found")
 
 
-# LIVE IDOT MAP
-elif view == "🚧 Live IDOT Map":
-    st.header("IDOT Getting Around Illinois - Live Map")
-    
-    st.markdown("""
-    ### 📍 Interactive IDOT Construction Map
-    
-    This is the live IDOT map showing all current construction and closures across Illinois.
-    
-    **How to use:**
-    - Zoom in/out to see specific areas
-    - Click on icons to see project details
-    - Use the layer controls to filter by project type
-    - Look for projects in your congressional district (use reference maps to match locations)
-    """)
-    
-    st.markdown("---")
-    
-    # District selector to help focus
-    col1, col2 = st.columns([1, 3])
-    
-    with col1:
-        st.markdown("**Filter by District:**")
-        selected_districts = st.multiselect(
-            "Show only these districts",
-            options=sorted(DISTRICTS.keys()),
-            default=[]
-        )
-        
-        if selected_districts:
-            st.info(f"Viewing: {', '.join(selected_districts)}")
-            for d in selected_districts:
-                info = DISTRICTS[d]
-                st.write(f"**{d}**: {info['area']}")
-    
-    with col2:
-        st.markdown("**Available Map Sources:**")
-        
-        map_source = st.radio(
-            "Choose data source:",
-            [
-                "🗺️ IDOT Getting Around Illinois (Main)",
-                "🚧 IDOT Construction Projects",
-                "📱 IDOT Mobile Map"
-            ]
-        )
-    
-    st.markdown("---")
-    
-    # Embed the actual IDOT map
-    if "Main" in map_source:
-        iframe_url = "https://www.gettingaroundillinois.com/RoadConstruction/index.html"
-        st.markdown("### Live IDOT Map:")
-        st.components.v1.iframe(iframe_url, height=800, scrolling=True)
-    
-    elif "Construction" in map_source:
-        # Try alternate IDOT map URLs
-        iframe_url = "https://www.gettingaroundillinois.com/"
-        st.markdown("### IDOT Home Map:")
-        st.components.v1.iframe(iframe_url, height=800, scrolling=True)
-    
-    else:
-        iframe_url = "https://www.gettingaroundillinois.com/RoadConstruction/index.html"
-        st.markdown("### IDOT Mobile View:")
-        st.components.v1.iframe(iframe_url, height=800, scrolling=True)
-    
-    st.markdown("---")
-    
-    # Instructions
-    with st.expander("💡 How to Add Projects to Your Dashboard", expanded=True):
-        st.markdown("""
-        ### When you see a project on the map:
-        
-        1. **Click on the project** to see details
-        2. **Note the information:**
-           - Route (I-90, US-30, etc.)
-           - Location (city, mile marker)
-           - Description
-           - Status
-        
-        3. **Determine the congressional district:**
-           - Use the reference maps in "District View"
-           - Match the location to a district
-           - Or use the route guide below
-        
-        4. **Add to dashboard:**
-           - Option A: Edit `idot_dynamic_XXXXXX.json`
-           - Option B: Edit `scrape_idot_simple.py`
-           - See SEMI_AUTOMATIC_SOLUTION.md for details
-        
-        ### Quick District Guide by Route:
-        
-        **Chicago Metro:**
-        - I-94 (south) → IL-01
-        - I-57 (south suburbs) → IL-02
-        - I-90 Kennedy → IL-03
-        - I-55 Stevenson → IL-04
-        - I-90/I-94 (north) → IL-05
-        - I-88/I-355 → IL-06
-        - I-290 → IL-07
-        - I-90 Jane Addams → IL-08
-        - I-94 Edens → IL-09
-        - I-94 (Lake County) → IL-10
-        
-        **Suburbs/Downstate:**
-        - I-80/I-55 (Joliet) → IL-11
-        - I-64/I-57 (southern) → IL-12
-        - I-72/US-36 (Decatur/Springfield) → IL-13
-        - I-88 (far west) → IL-14
-        - I-57/I-70 (eastern) → IL-15
-        - I-74/I-39 (Peoria/Rockford) → IL-16
-        - I-74/I-80 (Quad Cities) → IL-17
-        """)
-
-# AI ANALYSIS
-elif view == "📊 AI Analysis":
-    st.header("📊 AI-Powered Funding Analysis & Insights")
-    
-    import glob, json
-    import altair as alt
-    
-    # Load latest analysis
-    analysis_files = glob.glob('comprehensive_analysis_*.json')
-    if not analysis_files:
-        st.error("⚠️ No analysis found. Run: python3 ai_comprehensive_analysis.py")
-        st.stop()
-    
-    latest = sorted(analysis_files)[-1]
-    with open(latest, 'r') as f:
-        report = json.load(f)
-    
-    st.markdown(f"**Generated:** {report['metadata']['generated'][:19]}")
-    st.markdown("---")
-    
-    # Executive Summary
-    st.subheader("💼 Executive Summary")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total FY26 Funding", report['executive_summary']['total_funding_fy26'])
-    col2.metric("Districts Analyzed", report['executive_summary']['districts_analyzed'])
-    col3.metric("Programs Analyzed", report['executive_summary']['programs_analyzed'])
-    
-    st.markdown("### Key Findings")
-    for finding in report['executive_summary']['key_findings']:
-        st.markdown(f"- {finding}")
-    
-    st.markdown("---")
-    
-    # Tabs for different sections
-    tab1, tab2, tab3, tab4 = st.tabs(["💡 Insights", "⚖️ Formulas", "🗺️ Districts", "🎯 Recommendations"])
-    
-    with tab1:
-        st.subheader("Strategic Insights")
-        for section in report['insights']['sections']:
-            with st.expander(f"{section['title']}", expanded=False):
-                st.markdown(f"**Finding:** {section['finding']}")
-                if 'details' in section:
-                    st.markdown("**Details:**")
-                    for detail in section['details']:
-                        st.markdown(f"- {detail}")
-                if 'recommendation' in section:
-                    st.success(f"💡 **Recommendation:** {section['recommendation']}")
-                if 'strategy' in section:
-                    st.info(f"📋 **Strategy:** {section['strategy']}")
-    
-    with tab2:
-        st.subheader("FHWA Funding Formulas & US Code")
-        for prog_name, prog_data in report['formula_analysis']['formulas'].items():
-            with st.expander(f"{prog_name} - {prog_data['description']}", expanded=False):
-                st.markdown(f"**Statute:** [{prog_data['statute']}]({prog_data['url']})")
-                st.markdown(f"**Allocation Method:** {prog_data['allocation_method']}")
-                if 'key_factors' in prog_data:
-                    st.markdown("**Key Factors:**")
-                    for factor in prog_data['key_factors']:
-                        st.markdown(f"- {factor}")
-                if 'illinois_advantage' in prog_data:
-                    st.success(f"✅ **IL Advantage:** {prog_data['illinois_advantage']}")
-                if 'flexibility' in prog_data:
-                    st.info(f"🔧 **Flexibility:** {prog_data['flexibility']}")
-    
-    with tab3:
-        st.subheader("District Formula Allocations (FY 2026)")
-        
-        # Load detailed allocations
-        try:
-            with open('district_formula_allocations.json', 'r') as f:
-                formula_data = json.load(f)
-            
-            st.success("✅ Formula calculations loaded - showing all federal programs")
-            
-            # Summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            totals = formula_data['fy26_totals']
-            col1.metric("STBG Total", f"${totals['stbg_total']/1e6:.1f}M")
-            col2.metric("NHPP Total", f"${totals['nhpp_total']/1e6:.1f}M")
-            col3.metric("HSIP Total", f"${totals['hsip_total']/1e6:.1f}M")
-            col4.metric("Bridge Total", f"${totals['bridge_total']/1e6:.1f}M")
-            
-            st.markdown("---")
-            
-            # Detailed district table
-            district_details = []
-            for dist, alloc in sorted(formula_data['district_allocations'].items()):
-                district_details.append({
-                    'District': dist,
-                    'Representative': alloc['representative'],
-                    'Type': alloc['type'].replace('_', ' ').title(),
-                    'STBG': f"${alloc['stbg_formula']/1e6:.1f}M",
-                    'NHPP': f"${alloc['nhpp_est']/1e6:.1f}M",
-                    'HSIP': f"${alloc['hsip_est']/1e6:.1f}M",
-                    'Bridge': f"${alloc['bridge_est']/1e6:.1f}M",
-                    'Total': f"${alloc['total_formula_est']/1e6:.1f}M",
-                    'Per Capita': f"${alloc['per_capita']:.0f}"
-                })
-            
-            st.dataframe(pd.DataFrame(district_details), use_container_width=True, hide_index=True, height=600)
-            
-            # Visualizations
-            st.markdown("### Total Allocation by District")
-            df_viz = pd.DataFrame(district_details)
-            df_viz['Total_Num'] = df_viz['Total'].str.replace('$','').str.replace('M','').astype(float)
-            
-            chart = alt.Chart(df_viz).mark_bar().encode(
-                x=alt.X('District:N', sort='-y'),
-                y=alt.Y('Total_Num:Q', title='Total Allocation ($M)'),
-                color='Type:N',
-                tooltip=['District', 'Representative', 'Type', 'Total']
-            ).properties(height=400)
-            st.altair_chart(chart, use_container_width=True)
-            
-            # Per capita comparison
-            st.markdown("### Per Capita Funding")
-            df_viz['PerCapita_Num'] = df_viz['Per Capita'].str.replace('$','').astype(float)
-            
-            chart2 = alt.Chart(df_viz).mark_bar().encode(
-                x=alt.X('District:N', sort='-y'),
-                y=alt.Y('PerCapita_Num:Q', title='Per Capita ($)'),
-                color='Type:N',
-                tooltip=['District', 'Representative', 'Per Capita']
-            ).properties(height=400)
-            st.altair_chart(chart2, use_container_width=True)
-            
-        except FileNotFoundError:
-            st.warning("⚠️ Run: python3 calculate_district_formulas.py to generate detailed allocations")
-            # Fallback to basic STBG
-            district_data = []
-            for dist, alloc in sorted(report['district_allocations'].items()):
-                district_data.append({
-                    'District': dist,
-                    'Representative': alloc['representative'],
-                    'Type': alloc['type'],
-                    'Est. STBG': f"${alloc['stbg_formula']:,.0f}"
-                })
-            st.dataframe(pd.DataFrame(district_data), use_container_width=True, hide_index=True)
-    
-    with tab4:
-        st.subheader("Strategic Recommendations")
-        
-        st.markdown("### ⚡ Immediate Actions")
-        for rec in report['recommendations']['immediate']:
-            st.markdown(f"- {rec}")
-        
-        st.markdown("### 📈 Strategic Priorities")
-        for rec in report['recommendations']['strategic']:
-            st.markdown(f"- {rec}")
-        
-        st.markdown("### 🏛️ Political Considerations")
-        for rec in report['recommendations']['political']:
-            st.markdown(f"- {rec}")
-        
-        st.markdown("---")
-        st.markdown("### 📋 Next Steps")
-        for step in report['next_steps']:
-            st.markdown(f"- {step}")
-
-# FEDERAL FUNDING
+# ==================== FEDERAL FUNDING ====================
 elif view == "💰 Federal Funding":
     st.header("💰 Federal Funding Overview - Illinois IIJA Highway Apportionments")
-    
-    import json
-    import altair as alt
     
     try:
         with open('myp_funding_data.json', 'r') as f:
@@ -922,7 +621,6 @@ elif view == "💰 Federal Funding":
         st.error("⚠️ MYP funding data not found")
         st.stop()
     
-    # Summary metrics
     st.markdown("### Multi-Year Funding Summary (FY 2024-2026)")
     
     col1, col2, col3 = st.columns(3)
@@ -937,7 +635,6 @@ elif view == "💰 Federal Funding":
     
     st.markdown("---")
     
-    # Tabs
     tab1, tab2, tab3 = st.tabs(["📊 Trends", "🥧 Programs", "🗺️ Districts"])
     
     with tab1:
@@ -982,7 +679,6 @@ elif view == "💰 Federal Funding":
         ).properties(height=500)
         st.altair_chart(pie, use_container_width=True)
         
-        # Table
         prog_df = pd.DataFrame([{'Program': p[0], 'Amount': f'${p[1]:,.0f}'} for p in progs])
         st.dataframe(prog_df, width='stretch', hide_index=True)
     
@@ -1009,7 +705,157 @@ elif view == "💰 Federal Funding":
             st.warning("⚠️ Run district allocation calculator for detailed breakdown")
 
 
-# ILLINOIS GENERAL ASSEMBLY
+# ==================== AI ANALYSIS ====================
+elif view == "📊 AI Analysis":
+    st.header("📊 AI-Powered Funding Analysis & Insights")
+    
+    analysis_files = glob.glob('comprehensive_analysis_*.json')
+    if not analysis_files:
+        st.error("⚠️ No analysis found. Run: python3 ai_comprehensive_analysis.py")
+        st.stop()
+    
+    latest = sorted(analysis_files)[-1]
+    with open(latest, 'r') as f:
+        report = json.load(f)
+    
+    st.markdown(f"**Generated:** {report['metadata']['generated'][:19]}")
+    st.markdown("---")
+    
+    # Executive Summary
+    st.subheader("💼 Executive Summary")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total FY26 Funding", report['executive_summary']['total_funding_fy26'])
+    col2.metric("Districts Analyzed", report['executive_summary']['districts_analyzed'])
+    col3.metric("Programs Analyzed", report['executive_summary']['programs_analyzed'])
+    
+    st.markdown("### Key Findings")
+    for finding in report['executive_summary']['key_findings']:
+        st.markdown(f"- {finding}")
+    
+    st.markdown("---")
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["💡 Insights", "⚖️ Formulas", "🗺️ Districts", "🎯 Recommendations"])
+    
+    with tab1:
+        st.subheader("Strategic Insights")
+        for section in report['insights']['sections']:
+            with st.expander(f"{section['title']}", expanded=False):
+                st.markdown(f"**Finding:** {section['finding']}")
+                if 'details' in section:
+                    st.markdown("**Details:**")
+                    for detail in section['details']:
+                        st.markdown(f"- {detail}")
+                if 'recommendation' in section:
+                    st.success(f"💡 **Recommendation:** {section['recommendation']}")
+                if 'strategy' in section:
+                    st.info(f"📋 **Strategy:** {section['strategy']}")
+    
+    with tab2:
+        st.subheader("FHWA Funding Formulas & US Code")
+        for prog_name, prog_data in report['formula_analysis']['formulas'].items():
+            with st.expander(f"{prog_name} - {prog_data['description']}", expanded=False):
+                st.markdown(f"**Statute:** [{prog_data['statute']}]({prog_data['url']})")
+                st.markdown(f"**Allocation Method:** {prog_data['allocation_method']}")
+                if 'key_factors' in prog_data:
+                    st.markdown("**Key Factors:**")
+                    for factor in prog_data['key_factors']:
+                        st.markdown(f"- {factor}")
+                if 'illinois_advantage' in prog_data:
+                    st.success(f"✅ **IL Advantage:** {prog_data['illinois_advantage']}")
+                if 'flexibility' in prog_data:
+                    st.info(f"🔧 **Flexibility:** {prog_data['flexibility']}")
+    
+    with tab3:
+        st.subheader("District Formula Allocations (FY 2026)")
+        
+        try:
+            with open('district_formula_allocations.json', 'r') as f:
+                formula_data = json.load(f)
+            
+            st.success("✅ Formula calculations loaded - showing all federal programs")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            totals = formula_data['fy26_totals']
+            col1.metric("STBG Total", f"${totals['stbg_total']/1e6:.1f}M")
+            col2.metric("NHPP Total", f"${totals['nhpp_total']/1e6:.1f}M")
+            col3.metric("HSIP Total", f"${totals['hsip_total']/1e6:.1f}M")
+            col4.metric("Bridge Total", f"${totals['bridge_total']/1e6:.1f}M")
+            
+            st.markdown("---")
+            
+            district_details = []
+            for dist, alloc in sorted(formula_data['district_allocations'].items()):
+                district_details.append({
+                    'District': dist,
+                    'Representative': alloc['representative'],
+                    'Type': alloc['type'].replace('_', ' ').title(),
+                    'STBG': f"${alloc['stbg_formula']/1e6:.1f}M",
+                    'NHPP': f"${alloc['nhpp_est']/1e6:.1f}M",
+                    'HSIP': f"${alloc['hsip_est']/1e6:.1f}M",
+                    'Bridge': f"${alloc['bridge_est']/1e6:.1f}M",
+                    'Total': f"${alloc['total_formula_est']/1e6:.1f}M",
+                    'Per Capita': f"${alloc['per_capita']:.0f}"
+                })
+            
+            st.dataframe(pd.DataFrame(district_details), use_container_width=True, hide_index=True, height=600)
+            
+            st.markdown("### Total Allocation by District")
+            df_viz = pd.DataFrame(district_details)
+            df_viz['Total_Num'] = df_viz['Total'].str.replace('$','').str.replace('M','').astype(float)
+            
+            chart = alt.Chart(df_viz).mark_bar().encode(
+                x=alt.X('District:N', sort='-y'),
+                y=alt.Y('Total_Num:Q', title='Total Allocation ($M)'),
+                color='Type:N',
+                tooltip=['District', 'Representative', 'Type', 'Total']
+            ).properties(height=400)
+            st.altair_chart(chart, use_container_width=True)
+            
+            st.markdown("### Per Capita Funding")
+            df_viz['PerCapita_Num'] = df_viz['Per Capita'].str.replace('$','').astype(float)
+            
+            chart2 = alt.Chart(df_viz).mark_bar().encode(
+                x=alt.X('District:N', sort='-y'),
+                y=alt.Y('PerCapita_Num:Q', title='Per Capita ($)'),
+                color='Type:N',
+                tooltip=['District', 'Representative', 'Per Capita']
+            ).properties(height=400)
+            st.altair_chart(chart2, use_container_width=True)
+            
+        except FileNotFoundError:
+            st.warning("⚠️ Run: python3 calculate_district_formulas.py to generate detailed allocations")
+            district_data = []
+            for dist, alloc in sorted(report['district_allocations'].items()):
+                district_data.append({
+                    'District': dist,
+                    'Representative': alloc['representative'],
+                    'Type': alloc['type'],
+                    'Est. STBG': f"${alloc['stbg_formula']:,.0f}"
+                })
+            st.dataframe(pd.DataFrame(district_data), use_container_width=True, hide_index=True)
+    
+    with tab4:
+        st.subheader("Strategic Recommendations")
+        
+        st.markdown("### ⚡ Immediate Actions")
+        for rec in report['recommendations']['immediate']:
+            st.markdown(f"- {rec}")
+        
+        st.markdown("### 📈 Strategic Priorities")
+        for rec in report['recommendations']['strategic']:
+            st.markdown(f"- {rec}")
+        
+        st.markdown("### 🏛️ Political Considerations")
+        for rec in report['recommendations']['political']:
+            st.markdown(f"- {rec}")
+        
+        st.markdown("---")
+        st.markdown("### 📋 Next Steps")
+        for step in report['next_steps']:
+            st.markdown(f"- {step}")
+
+
+# ==================== IL GENERAL ASSEMBLY ====================
 elif view == "🏛️ IL General Assembly":
     st.header("🏛️ Illinois General Assembly Transportation Tracker")
     
@@ -1048,25 +894,19 @@ elif view == "🏛️ IL General Assembly":
         st.error("⚠️ Illinois GA data not loaded. Run: python3 scrape_ilga.py")
 
 
-# AV POLICY
+# ==================== AV POLICY ====================
 elif view == "🤖 AV Policy":
     st.header("🚗 Autonomous Vehicle Policy - 50 State Tracker")
     
-    # Load and organize AV policy data by state
     av_states = {'passed': {}, 'active': {}}
     
-    # Try to load NCSL AV data
     try:
         with open('ncsl_av_complete.json', 'r') as f:
             ncsl_data = json.load(f)
             
-        # Organize states by status
         for state_name, state_info in ncsl_data.get('states', {}).items():
-            # States with passed legislation (not "No Legislation" and not pending)
             if state_info.get('type') != 'No Legislation' and state_info.get('year') != 'N/A':
                 av_states['passed'][state_name] = state_info
-            # States with active/pending legislation could be added here if data exists
-            # For now, we'll just track passed vs. no activity
     except FileNotFoundError:
         st.warning("⚠️ NCSL AV data file not found. Showing empty tracker.")
     except Exception as e:
@@ -1080,14 +920,9 @@ elif view == "🤖 AV Policy":
     
     st.markdown("---")
     
-    # Create interactive US map with Folium
-    import folium
-    from folium import plugins
-    
     st.subheader("Interactive 50-State Map")
     st.markdown("**🔵 Blue** = Laws Passed | **🟠 Orange** = Active Legislation | **⚪ Gray** = No Activity")
     
-    # State coordinates (approximate centers)
     state_coords = {
         'Alabama': [32.8067, -86.7911], 'Alaska': [61.3707, -152.4044], 'Arizona': [33.7298, -111.4312],
         'Arkansas': [34.9697, -92.3731], 'California': [36.1162, -119.6816], 'Colorado': [39.0598, -105.3111],
@@ -1108,28 +943,21 @@ elif view == "🤖 AV Policy":
         'Wisconsin': [44.2685, -89.6165], 'Wyoming': [42.7559, -107.3025]
     }
     
-    # Create map centered on US
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4, tiles='CartoDB positron')
     
-    # Add state markers
     for state, coords in state_coords.items():
-        # Determine color and status
         if state in av_states['passed']:
             color = 'blue'
-            icon_color = 'white'
             status_info = av_states['passed'][state]
             status_text = f"<b>✅ PASSED ({status_info['year']})</b><br>{status_info['type']}<br>{status_info['status']}"
         elif state in av_states['active']:
             color = 'orange'
-            icon_color = 'white'
             status_info = av_states['active'][state]
             status_text = f"<b>🟠 PENDING ({status_info['year']})</b><br>{status_info['type']}<br>{status_info['status']}"
         else:
             color = 'gray'
-            icon_color = 'white'
             status_text = "<b>⚪ NO ACTIVITY</b><br>No AV legislation"
         
-        # Add marker
         folium.CircleMarker(
             location=coords,
             radius=8 if state in av_states['passed'] or state in av_states['active'] else 4,
@@ -1142,12 +970,10 @@ elif view == "🤖 AV Policy":
             weight=2
         ).add_to(m)
     
-    # Display map
     folium_static(m, width=1400, height=600)
     
     st.markdown("---")
     
-    # State details tabs
     tab1, tab2, tab3 = st.tabs(["🔵 Laws Passed", "🟠 Active Legislation", "📊 Illinois Options"])
     
     with tab1:
@@ -1162,12 +988,9 @@ elif view == "🤖 AV Policy":
                 
                 st.markdown("---")
                 
-                # Primary Law
                 st.markdown("#### 📜 Primary Legislation")
-                law_name = info.get('law_name', 'N/A')
-                st.markdown(f"**{law_name}**")
+                st.markdown(f"**{info.get('law_name', 'N/A')}**")
                 
-                # Agency
                 st.markdown("#### 🏛️ Implementing Agency")
                 agency = info.get('agency', 'N/A')
                 agency_url = info.get('agency_url', '')
@@ -1176,13 +999,11 @@ elif view == "🤖 AV Policy":
                 else:
                     st.markdown(f"**{agency}**")
                 
-                # Executive Orders
                 if info.get('executive_orders'):
                     st.markdown("#### 📋 Executive Orders")
                     for eo in info['executive_orders']:
                         st.markdown(f"- **{eo.get('title', 'N/A')}** ({eo.get('year', 'N/A')}) - [Read Order]({eo.get('url', '#')})")
                 
-                # Press Releases
                 if info.get('press_releases'):
                     st.markdown("#### 📰 Recent Press Releases")
                     for pr in info['press_releases']:
@@ -1200,12 +1021,9 @@ elif view == "🤖 AV Policy":
                 
                 st.markdown("---")
                 
-                # Pending Law
                 st.markdown("#### 📜 Pending Legislation")
-                law_name = info.get('law_name', 'N/A')
-                st.markdown(f"**{law_name}**")
+                st.markdown(f"**{info.get('law_name', 'N/A')}**")
                 
-                # Agency
                 st.markdown("#### 🏛️ Lead Agency")
                 agency = info.get('agency', 'N/A')
                 agency_url = info.get('agency_url', '')
@@ -1214,19 +1032,16 @@ elif view == "🤖 AV Policy":
                 else:
                     st.markdown(f"**{agency}**")
                 
-                # Bills Pending
                 if info.get('bills_pending'):
                     st.markdown("#### 📑 Bills Under Consideration")
                     for bill in info['bills_pending']:
                         st.markdown(f"- **{bill.get('bill', 'N/A')}** - {bill.get('status', 'N/A')} - [View Bill]({bill.get('url', '#')})")
                 
-                # Executive Orders
                 if info.get('executive_orders'):
                     st.markdown("#### 📋 Executive Orders")
                     for eo in info['executive_orders']:
                         st.markdown(f"- **{eo.get('title', 'N/A')}** ({eo.get('year', 'N/A')}) - [Read Order]({eo.get('url', '#')})")
                 
-                # Press Releases
                 if info.get('press_releases'):
                     st.markdown("#### 📰 Recent Announcements")
                     for pr in info['press_releases']:
@@ -1238,7 +1053,6 @@ elif view == "🤖 AV Policy":
     with tab3:
         st.markdown("### Illinois AV Policy Options")
         
-        # Links to Illinois resources
         st.markdown("#### 🔗 Illinois Resources")
         col1, col2 = st.columns(2)
         with col1:
@@ -1287,223 +1101,11 @@ elif view == "🤖 AV Policy":
         st.markdown("---")
         st.markdown("**📍 Illinois Status:** Pending - Decision expected Q2 2026")
         st.markdown("**📧 Contact:** [IDOT Policy Office](https://idot.illinois.gov/about-idot/contact-us.html)")
-        
-        with st.expander("⚠️ Option C: Status Quo (NOT RECOMMENDED)"):
-            st.write("**Minimal regulation (Arizona model)**")
-            st.write("⚠️ Limited safety oversight")
-            st.write("⚠️ Unclear liability")
-            st.write("⚠️ Public trust concerns")
-            st.error("**This is what Waymo is lobbying for**")
-        
-        st.markdown("---")
-        st.markdown("**📍 Illinois Status:** Pending - Decision expected Q2 2026")
-
-st.markdown("---")
-st.markdown(f"<div style='text-align: center; color: #666;'>IDOT | {datetime.now().strftime('%B %d, %Y')}</div>", unsafe_allow_html=True)
 
 
-
-# ========================= Policy Goblin =========================
-st.sidebar.markdown("---")
-st.sidebar.markdown("## 🧠 Policy Goblin")
-
-g_scope = st.sidebar.selectbox("Scope", ["Illinois", "All states"], index=0)
-g_query = st.sidebar.text_area("Ask a question", placeholder="e.g., What construction is going on in IL-12?")
-
-def _load_latest_json(pattern: str):
-    files = glob.glob(pattern)
-    if not files:
-        return None, None
-    latest = max(files, key=lambda f: Path(f).stat().st_mtime)
-    try:
-        return latest, json.loads(Path(latest).read_text())
-    except Exception:
-        return latest, None
-
-def _as_docs():
-    docs = []
-
-    # NCSL AV converted payloads (best-effort)
-    f_av, d_av = _load_latest_json("dashboard_av_data_*.json")
-    if isinstance(d_av, dict):
-        for status, items in d_av.items():
-            if not isinstance(items, list):
-                continue
-            for it in items:
-                txt = f"[NCSL AV | {status}] " + " ".join(str(v) for v in (it or {}).values())
-                docs.append({"source":"NCSL_AV", "status":status, "text":txt, "item":it, "file":f_av})
-
-    # Bills by district
-    f_bbd, d_bbd = _load_latest_json("bills_by_district_*.json")
-    if isinstance(d_bbd, dict):
-        for dist, items in d_bbd.items():
-            if not isinstance(items, list):
-                continue
-            for it in items:
-                url = (it or {}).get("url") or (it or {}).get("link") or ""
-                title = (it or {}).get("title") or (it or {}).get("bill") or ""
-                txt = f"[Congress bills | {dist}] {title} " + " ".join(str(v) for v in (it or {}).values())
-                docs.append({"source":"CONGRESS", "district":dist, "url":url, "text":txt, "item":it, "file":f_bbd})
-
-    # IDOT dynamic / closures / construction (explode list-of-dicts into per-record docs)
-
-    # IDOT dynamic / closures / construction (district-aware: IL-## -> {construction, closures})
-    f_idot, d_idot = _load_latest_json("idot_dynamic_*.json")
-
-    if isinstance(d_idot, dict):
-        for dist, payload in d_idot.items():
-            if not isinstance(payload, dict):
-                continue
-
-            # Construction items
-            cons = payload.get("construction", [])
-            if isinstance(cons, list):
-                for rec in cons:
-                    if not isinstance(rec, dict):
-                        continue
-                    title = rec.get("title") or rec.get("project") or rec.get("description") or rec.get("location") or "construction"
-                    txt = f"[IDOT | {dist} | construction] {title} " + " ".join(str(v) for v in rec.values())
-                    docs.append({"source":"IDOT", "district":dist, "category":"construction", "text":txt, "item":rec, "file":f_idot})
-
-            # Closure items
-            clos = payload.get("closures", [])
-            if isinstance(clos, list):
-                for rec in clos:
-                    if not isinstance(rec, dict):
-                        continue
-                    title = rec.get("title") or rec.get("description") or rec.get("location") or "closure"
-                    txt = f"[IDOT | {dist} | closures] {title} " + " ".join(str(v) for v in rec.values())
-                    docs.append({"source":"IDOT", "district":dist, "category":"closures", "text":txt, "item":rec, "file":f_idot})
-
-
-    return docs
-
-
-def _extract_il_cd(q: str):
-    m = re.search(r"\bIL[\s\-]?(\d{1,2})\b", (q or "").upper())
-    if not m:
-        return None
-    try:
-        return int(m.group(1))
-    except Exception:
-        return None
-
-
-def _score(query, doc_text):
-    q = [w for w in re.split(r"[^a-z0-9]+", (query or "").lower()) if w]
-    t = (doc_text or "").lower()
-    return sum(1 for w in q if w and w in t)
-
-def _retrieve(query, docs, k=12):
-    cd = _extract_il_cd(query)
-    district_filter = f"IL-{cd:02d}" if cd else None
-    if district_filter:
-        # Keep IDOT docs only for that district; leave other sources untouched
-        docs = [d for d in docs if d.get('source') != 'IDOT' or d.get('district') == district_filter]
-
-    scored = []
-    for d in docs:
-        sc = _score(query, d.get("text",""))
-        if sc > 0:
-            scored.append((sc, d))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [d for _, d in scored[:k]]
-
-def _support(items):
-    lines = []
-    for d in items:
-        src = d.get("source","?")
-        url = d.get("url") or ""
-        if url:
-            lines.append(f"- **{src}**: {url}")
-        else:
-            lines.append(f"- **{src}** (from {d.get('file')})")
-    return "\n".join(lines) if lines else "_No supporting items_"
-
-if st.sidebar.button("Ask Goblin"):
-    docs = _as_docs()
-    if not (g_query or "").strip():
-        st.sidebar.warning("Ask a question first.")
-    else:
-        items = _retrieve(g_query, docs, k=12)
-        if not items:
-            st.sidebar.warning("No strong matches. Try adding location keywords (city/county/route) or 'closure', 'lane', 'bridge', 'resurfacing'.")
-        else:
-            # Deterministic brief (no API keys required)
-            by_src = {}
-            for it in items:
-                by_src[it["source"]] = by_src.get(it["source"], 0) + 1
-
-            st.sidebar.markdown(f"**Question:** {g_query}")
-            st.sidebar.markdown("**What I found (by source):** " + ", ".join(f"{k}: {v}" for k,v in by_src.items()))
-            st.sidebar.markdown("**Supporting items:**\n" + _support(items))
-            
-            # IDOT-friendly brief when available
-            def _parse_date(x):
-                # Best-effort: keep as string; parsing can be added later if needed
-                return (x or "").strip()
-
-            def _top_counts(vals, n=8):
-                from collections import Counter
-                c = Counter([v for v in vals if v not in (None, "", "None")])
-                return c.most_common(n)
-
-            idot_items = [d for d in items if d.get("source") == "IDOT"]
-            if idot_items:
-                recs = [d.get("item") for d in idot_items if isinstance(d.get("item"), dict)]
-                st.sidebar.markdown("### 🦺 IDOT construction/closures brief")
-
-                st.sidebar.markdown(f"**Total IDOT items returned:** {len(recs)}")
-
-                counties = [r.get("County") for r in recs]
-                routes = [r.get("Route") or r.get("Route1") for r in recs]
-                ctypes = [r.get("ConstructionType") for r in recs]
-                statuses = [r.get("Status") for r in recs]
-
-                st.sidebar.markdown("**Top counties:** " + ", ".join(f"{k} ({v})" for k,v in _top_counts(counties, 6)) )
-                st.sidebar.markdown("**Top routes:** " + ", ".join(f"{k} ({v})" for k,v in _top_counts(routes, 6)) )
-                st.sidebar.markdown("**Top construction types:** " + ", ".join(f"{k} ({v})" for k,v in _top_counts(ctypes, 6)) )
-
-                # Prefer "active-ish" records
-                active = []
-                for r in recs:
-                    stt = (r.get("Status") or "").lower()
-                    if any(w in stt for w in ["active", "in progress", "current", "open"]):
-                        active.append(r)
-                if not active:
-                    active = recs
-
-                st.sidebar.markdown("### Top items (up to 10)")
-                for r in active[:10]:
-                    route = r.get("Route") or r.get("Route1") or "Route?"
-                    town = r.get("NearTown") or ""
-                    county = r.get("County") or ""
-                    ctype = r.get("ConstructionType") or ""
-                    impact = r.get("ImpactOnTravel") or r.get("TrafficAlert") or ""
-                    start = _parse_date(r.get("StartDate"))
-                    end = _parse_date(r.get("EndDate"))
-                    url = r.get("WebAddress") or ""
-
-                    line = f"- **{route}** — {town} ({county}) — *{ctype}* — {start} → {end}"
-                    st.sidebar.markdown(line)
-                    if impact:
-                        st.sidebar.markdown(f"  - Impact: {impact}")
-                    if url:
-                        st.sidebar.markdown(f"  - Link: {url}")
-
-                st.sidebar.markdown("### Raw sample (first 1)")
-                st.sidebar.json(recs[0] if recs else {})
-            else:
-                # fallback to prior behavior
-                st.sidebar.markdown("**Top matches (first 5):**")
-                st.sidebar.json([x.get("item") for x in items[:5]])
-
-# ================================================================# FY27 PROJECTIONS
+# ==================== FY27 PROJECTIONS ====================
 elif view == "🔮 FY27 Projections":
     st.header("🔮 FY 2027 Appropriations Projections")
-    
-    import json
-    import altair as alt
     
     try:
         with open('fy27_appropriations_projections.json', 'r') as f:
@@ -1512,16 +1114,13 @@ elif view == "🔮 FY27 Projections":
         st.error("⚠️ Run: python3 analyze_appropriations_fy27.py")
         st.stop()
     
-    # Alert box
     st.warning("⚠️ **CRITICAL**: IIJA authorization expires after FY26. New surface transportation reauthorization needed for FY27+")
     
-    # Baseline
     baseline = proj_data['fy26_baseline']['total']
     st.markdown(f"### FY 2026 Baseline (Enacted): **${baseline/1e9:.2f} Billion**")
     
     st.markdown("---")
     
-    # Scenario cards
     st.markdown("### FY 2027 Projection Scenarios")
     
     scenarios = proj_data['fy27_scenarios']
@@ -1536,7 +1135,6 @@ elif view == "🔮 FY27 Projections":
             
             st.markdown(f"**Assessment:** {scenario['likelihood']}")
     
-    # Chart
     st.markdown("### Scenario Comparison")
     
     chart_data = []
@@ -1560,7 +1158,6 @@ elif view == "🔮 FY27 Projections":
     
     st.altair_chart(chart, use_container_width=True)
     
-    # Key insights
     st.markdown("---")
     st.markdown("### Key Insights")
     
@@ -1583,24 +1180,21 @@ elif view == "🔮 FY27 Projections":
     - 📊 **Illinois Share**: Historical 3.8-3.9% typically stable
     """)
     
-    # Add program-level breakdown
+    # Program-level breakdown
     st.markdown("---")
     st.markdown("### Program-by-Program FY27 Projections")
     
     if 'program_projections' in proj_data:
         
-        # Select scenario
         scenario_choice = st.selectbox(
             "Select Scenario:",
             ["Flat Extension (CR)", "Inflation Adjusted (2.5%)", "House Markup (+3.5%)", 
              "Senate Markup (+4%)", "Budget Constraints (-2%)"],
-            index=1  # Default to inflation adjusted
+            index=1
         )
         
-        # Build program table for selected scenario
-        prog_data = []
+        prog_data_list = []
         
-        # Filter out garbage program names
         valid_programs = [
             'National Highway Performance Program',
             'Surface Transportation Grant Block Program',
@@ -1616,7 +1210,6 @@ elif view == "🔮 FY27 Projections":
         ]
         
         for prog_name, prog_info in proj_data['program_projections'].items():
-            # Skip if not a valid program name
             if not any(valid in prog_name for valid in valid_programs):
                 continue
             
@@ -1625,23 +1218,21 @@ elif view == "🔮 FY27 Projections":
                 fy27_amt = prog_info['scenarios'][scenario_choice]
                 change = fy27_amt - fy26_amt
                 
-                prog_data.append({
+                prog_data_list.append({
                     'Program': prog_name,
                     'FY26 Baseline': f'${fy26_amt/1e6:.1f}M',
                     'FY27 Projected': f'${fy27_amt/1e6:.1f}M',
                     'Change': f'${change/1e6:+.1f}M'
                 })
         
-        # Sort by FY26 baseline
-        prog_data.sort(key=lambda x: float(x['FY26 Baseline'].replace('$','').replace('M','')), reverse=True)
+        prog_data_list.sort(key=lambda x: float(x['FY26 Baseline'].replace('$','').replace('M','')), reverse=True)
         
-        st.dataframe(pd.DataFrame(prog_data[:15]), width='stretch', hide_index=True, height=500)
+        st.dataframe(pd.DataFrame(prog_data_list[:15]), width='stretch', hide_index=True, height=500)
         
-        # Show top 5 programs chart
         st.markdown("#### Top 5 Programs Comparison")
         
         top5_data = []
-        for prog in prog_data[:5]:
+        for prog in prog_data_list[:5]:
             top5_data.append({
                 'Program': prog['Program'][:30] + '...' if len(prog['Program']) > 30 else prog['Program'],
                 'FY26': float(prog['FY26 Baseline'].replace('$','').replace('M','')),
@@ -1663,12 +1254,11 @@ elif view == "🔮 FY27 Projections":
     else:
         st.warning("Program-level projections not available. Run analysis script.")
 
-# DISCRETIONARY GRANTS
+
+# ==================== DISCRETIONARY GRANTS ====================
 elif view == "💎 Discretionary Grants":
     st.header("💎 Discretionary Grants - Competitive Federal Awards")
     
-    import json
-    import altair as alt
     try:
         with open('discretionary_grants.json', 'r') as f:
             grants_data = json.load(f)
@@ -1676,7 +1266,6 @@ elif view == "💎 Discretionary Grants":
         st.error("⚠️ Run: python3 create_discretionary_grants.py")
         st.stop()
     
-    # Summary metrics
     st.markdown("### Illinois Competitive Grants (2020-2025)")
     col1, col2, col3, col4 = st.columns(4)
     
@@ -1691,7 +1280,6 @@ elif view == "💎 Discretionary Grants":
     
     st.markdown("---")
     
-    # Tabs
     tab1, tab2, tab3 = st.tabs(["📊 By District", "📋 By Program", "📅 Timeline"])
     
     with tab1:
@@ -1709,7 +1297,6 @@ elif view == "💎 Discretionary Grants":
         
         st.dataframe(pd.DataFrame(district_data), width='stretch', hide_index=True, height=600)
         
-        # Chart
         df_viz = pd.DataFrame(district_data)
         df_viz['Amount'] = df_viz['Total'].str.replace('$','').str.replace('M','').astype(float)
         
@@ -1734,7 +1321,6 @@ elif view == "💎 Discretionary Grants":
         
         st.dataframe(pd.DataFrame(program_data), width='stretch', hide_index=True)
         
-        # Pie chart
         df_prog = pd.DataFrame(program_data)
         df_prog['Amount'] = df_prog['Total'].str.replace('$','').str.replace('M','').astype(float)
         
@@ -1749,7 +1335,6 @@ elif view == "💎 Discretionary Grants":
         st.subheader("All Grants Detail")
         
         grants_list = []
-        # Show ALL grants including 2020-2022
         all_grants = sorted(grants_data['grants'], key=lambda x: x['year'], reverse=True)
         for grant in all_grants:
             grants_list.append({
@@ -1765,3 +1350,7 @@ elif view == "💎 Discretionary Grants":
         df_grants = pd.DataFrame(grants_list)
         st.dataframe(df_grants, width='stretch', hide_index=True, height=600)
 
+
+# ==================== FOOTER ====================
+st.markdown("---")
+st.markdown(f"<div style='text-align: center; color: #666;'>IDOT Dashboard | {datetime.now().strftime('%B %d, %Y')}</div>", unsafe_allow_html=True)

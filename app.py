@@ -5,7 +5,6 @@ import pandas as pd
 import folium
 from streamlit_folium import folium_static
 from datetime import datetime
-import subprocess
 import os
 import json
 import glob
@@ -13,49 +12,16 @@ from PIL import Image
 from pathlib import Path
 import altair as alt
 
-# ─── Auto-bootstrap: run pipeline if data/ is empty ──────────────────
-@st.cache_resource(ttl=3600)  # Re-run at most once per hour
-def bootstrap_pipeline():
-    """Fetch boundary + road event data if not already cached."""
+# ─── Check pipeline data status (no auto-run) ────────────────────────
+def _check_pipeline():
     boundary_dir = "data/boundaries"
     road_dir = "data/road"
-    os.makedirs(boundary_dir, exist_ok=True)
-    os.makedirs(road_dir, exist_ok=True)
-
-    boundary_count = len(glob.glob(os.path.join(boundary_dir, "*.geojson")))
-    road_count = len(glob.glob(os.path.join(road_dir, "*.json")))
-
-    ran_something = False
-
-    if boundary_count < 5 and os.path.exists("fetch_boundaries.py"):
-        try:
-            subprocess.run(
-                ["python", "fetch_boundaries.py"],
-                timeout=120, capture_output=True
-            )
-            ran_something = True
-        except Exception:
-            pass
-
-    if road_count < 3 and os.path.exists("fetch_road_events.py"):
-        try:
-            subprocess.run(
-                ["python", "fetch_road_events.py"],
-                timeout=300, capture_output=True
-            )
-            ran_something = True
-        except Exception:
-            pass
-
-    new_boundary = len(glob.glob(os.path.join(boundary_dir, "*.geojson")))
-    new_road = len(glob.glob(os.path.join(road_dir, "*.json")))
     return {
-        "boundaries": new_boundary,
-        "road_events": new_road,
-        "ran": ran_something
+        "boundaries": len(glob.glob(os.path.join(boundary_dir, "*.geojson"))) if os.path.isdir(boundary_dir) else 0,
+        "road_events": len(glob.glob(os.path.join(road_dir, "*.json"))) if os.path.isdir(road_dir) else 0,
     }
 
-pipeline_status = bootstrap_pipeline()
+pipeline_status = _check_pipeline()
 
 # ─── Load pipeline data helpers ───────────────────────────────────────
 def load_road_events(district_key):

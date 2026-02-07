@@ -1,0 +1,47 @@
+{
+  "meta": {
+    "generated": "2026-02-07",
+    "description": "Canonical member roster for IL Transportation Dashboard",
+    "geographies": ["congressional", "il_house", "il_senate"],
+    "notes": "IL House has 118 districts, IL Senate has 59 districts. Congressional has 17 + 2 senators."
+  },
+  "senators": [
+    {
+      "district_key": "US-IL-SEN",
+      "name": "Dick Durbin",
+      "party": "D",
+      "chamber": "us_senate",
+      "title": "Senior Senator",
+      "notes": "Senate Majority Whip",
+      "committees": ["Appropriations", "Judiciary"]
+    },
+    {
+      "district_key": "US-IL-SEN",
+      "name": "Tammy Duckworth",
+      "party": "D",
+      "chamber": "us_senate",
+      "title": "Junior Senator",
+      "notes": "Iraq War Veteran",
+      "committees": ["Armed Services", "Commerce"]
+    }
+  ],
+  "congressional": {
+    "US-IL-CD-01": {"name": "Jonathan Jackson", "party": "D", "area": "Chicago South Side", "committees": ["Agriculture", "Foreign Affairs"]},
+    "US-IL-CD-02": {"name": "Robin Kelly", "party": "D", "area": "South suburbs", "committees": ["Energy and Commerce", "Oversight"]},
+    "US-IL-CD-03": {"name": "Delia Ramirez", "party": "D", "area": "Northwest Chicago", "committees": ["Homeland Security", "Oversight"]},
+    "US-IL-CD-04": {"name": "Jesús García", "party": "D", "area": "Southwest Chicago", "committees": ["Financial Services", "Transportation"]},
+    "US-IL-CD-05": {"name": "Mike Quigley", "party": "D", "area": "North Chicago", "committees": ["Appropriations", "Intelligence"]},
+    "US-IL-CD-06": {"name": "Sean Casten", "party": "D", "area": "Western suburbs", "committees": ["Financial Services", "Science"]},
+    "US-IL-CD-07": {"name": "Danny Davis", "party": "D", "area": "West Chicago", "committees": ["Ways and Means"]},
+    "US-IL-CD-08": {"name": "Raja Krishnamoorthi", "party": "D", "area": "Northwest suburbs", "committees": ["Oversight", "Intelligence"]},
+    "US-IL-CD-09": {"name": "Jan Schakowsky", "party": "D", "area": "North suburbs", "committees": ["Energy and Commerce", "Budget"]},
+    "US-IL-CD-10": {"name": "Brad Schneider", "party": "D", "area": "Lake County", "committees": ["Ways and Means", "Foreign Affairs"]},
+    "US-IL-CD-11": {"name": "Bill Foster", "party": "D", "area": "Aurora/Joliet", "committees": ["Financial Services", "Science"]},
+    "US-IL-CD-12": {"name": "Mike Bost", "party": "R", "area": "Southern Illinois", "committees": ["Transportation", "Veterans Affairs"]},
+    "US-IL-CD-13": {"name": "Nikki Budzinski", "party": "D", "area": "Central Illinois", "committees": ["Agriculture", "Transportation"]},
+    "US-IL-CD-14": {"name": "Lauren Underwood", "party": "D", "area": "Far west suburbs", "committees": ["Appropriations", "Veterans Affairs"]},
+    "US-IL-CD-15": {"name": "Mary Miller", "party": "R", "area": "Eastern Illinois", "committees": ["Agriculture", "Education"]},
+    "US-IL-CD-16": {"name": "Darin LaHood", "party": "R", "area": "Peoria/Rockford", "committees": ["Ways and Means"]},
+    "US-IL-CD-17": {"name": "Eric Sorensen", "party": "D", "area": "Quad Cities", "committees": ["Agriculture", "Science"]}
+  }
+}

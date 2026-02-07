@@ -58,6 +58,168 @@ def load_boundary(district_key):
 
 members_data = load_members()
 
+# ─── Sidebar Chatbot ──────────────────────────────────────────────────
+def build_dashboard_context():
+    """Build a context string summarizing all dashboard data for the chatbot."""
+    ctx = []
+    ctx.append("=== ILLINOIS TRANSPORTATION DASHBOARD DATA ===\n")
+
+    # Members roster
+    if members_data:
+        ctx.append("CONGRESSIONAL DELEGATION:")
+        if "senators" in members_data:
+            for s in members_data["senators"]:
+                ctx.append(f"  US Senator: {s['name']} ({s['party']}) - {s.get('title','')}")
+        if "congressional" in members_data:
+            for dk, m in members_data["congressional"].items():
+                ctx.append(f"  {dk}: Rep. {m['name']} ({m['party']}) - {m.get('area','')}, Committees: {', '.join(m.get('committees',[]))}")
+        ctx.append("")
+
+    # District data (hardcoded in app)
+    ctx.append("DISTRICT TRANSPORTATION DATA (17 Congressional Districts):")
+    try:
+        for dist_id, d in DISTRICTS.items():
+            ctx.append(f"  {dist_id} ({d.get('rep','')}, {d.get('party','')}) - {d.get('area','')}")
+            for c in d.get("closures", []):
+                ctx.append(f"    Closure: {c.get('route','')} at {c.get('location','')} - {c.get('type','')} [{c.get('status','')}]")
+            for c in d.get("construction", []):
+                ctx.append(f"    Construction: {c.get('route','')} at {c.get('location','')} - {c.get('type','')} [{c.get('status','')}] Budget: {c.get('budget','N/A')}")
+            for g in d.get("grants", []):
+                ctx.append(f"    Grant: {g.get('program','')} ${g.get('amount',0):,.0f} - {g.get('project','')}")
+    except:
+        pass
+    ctx.append("")
+
+    # Pipeline road events if available
+    road_dir = "data/road"
+    if os.path.isdir(road_dir):
+        road_files = glob.glob(os.path.join(road_dir, "*.json"))
+        if road_files:
+            ctx.append("LIVE ROAD EVENTS (from IDOT ArcGIS pipeline):")
+            for rf in sorted(road_files)[:20]:
+                key = os.path.basename(rf).replace(".json", "")
+                try:
+                    with open(rf) as f:
+                        rd = json.load(f)
+                    counts = rd.get("counts", {})
+                    ctx.append(f"  {key}: {rd.get('total',0)} events (closures={counts.get('closures',0)}, restrictions={counts.get('restrictions',0)}, construction={counts.get('construction',0)})")
+                    for t in rd.get("top", [])[:3]:
+                        ctx.append(f"    Top: {t.get('road','N/A')} - {t.get('type','')} - {t.get('description','')[:60]}")
+                except:
+                    pass
+            ctx.append("")
+
+    # Bills data
+    if real_bills_data:
+        ctx.append("TRANSPORTATION BILLS:")
+        for bill_id, bill in list(real_bills_data.items())[:10]:
+            if isinstance(bill, dict):
+                ctx.append(f"  {bill_id}: {bill.get('title', bill.get('short_title',''))[:80]}")
+        ctx.append("")
+
+    # Federal funding data
+    ctx.append("FEDERAL FUNDING: Illinois receives IIJA Highway Formula apportionments.")
+    ctx.append("Key programs: National Highway Performance, Surface Transportation Block Grant,")
+    ctx.append("Highway Safety Improvement, Railway-Highway Crossings, CMAQ, Metropolitan Planning.")
+    ctx.append("")
+
+    ctx.append("The dashboard also tracks: Discretionary Grants (RAISE, INFRA, SS4A, etc.),")
+    ctx.append("FY27 Budget Projections, IL General Assembly transportation legislation,")
+    ctx.append("AV/autonomous vehicle policy across 50 states, and meeting memos for all 17 districts.")
+
+    return "\n".join(ctx)
+
+with st.sidebar:
+    st.markdown("### 🤖 IDOT AI Assistant")
+
+    # API key from secrets or manual input
+    api_key = None
+    if hasattr(st, "secrets") and "ANTHROPIC_API_KEY" in st.secrets:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+    else:
+        api_key = st.text_input("Anthropic API Key", type="password", key="api_key_input")
+        if not api_key:
+            st.caption("Add your key here, or set `ANTHROPIC_API_KEY` in Streamlit secrets.")
+
+    # Initialize chat history
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = []
+
+    # Display chat history
+    chat_container = st.container(height=400)
+    with chat_container:
+        for msg in st.session_state.chat_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+    # Chat input
+    if prompt := st.chat_input("Ask about IL transportation...", key="sidebar_chat"):
+        if not api_key:
+            st.warning("Please enter your Anthropic API key above.")
+        else:
+            # Add user message
+            st.session_state.chat_messages.append({"role": "user", "content": prompt})
+            with chat_container:
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+            # Build system prompt with dashboard context
+            dashboard_context = build_dashboard_context()
+            system_prompt = f"""You are the IDOT AI Assistant, embedded in the Illinois Transportation Dashboard.
+You help users understand Illinois transportation data, policy, funding, and infrastructure.
+
+You have access to the following live dashboard data:
+
+{dashboard_context}
+
+Guidelines:
+- Be concise and specific. Reference actual data from the dashboard when relevant.
+- If asked about a specific district, reference the rep, closures, construction, and grants.
+- If asked about funding, reference IIJA allocations and discretionary grants.
+- If asked about legislation, reference tracked bills and IL General Assembly data.
+- If asked about something not in the data, say so honestly and provide general knowledge.
+- Keep answers focused and practical — this is a government/policy tool.
+- Format numbers with commas for readability.
+"""
+
+            # Call Claude API
+            try:
+                import anthropic
+                client = anthropic.Anthropic(api_key=api_key)
+
+                # Build messages (keep last 10 for context window)
+                messages = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.chat_messages[-10:]
+                ]
+
+                with chat_container:
+                    with st.chat_message("assistant"):
+                        with st.spinner("Thinking..."):
+                            response = client.messages.create(
+                                model="claude-sonnet-4-20250514",
+                                max_tokens=1024,
+                                system=system_prompt,
+                                messages=messages,
+                            )
+                            reply = response.content[0].text
+                            st.markdown(reply)
+
+                st.session_state.chat_messages.append({"role": "assistant", "content": reply})
+
+            except Exception as e:
+                error_msg = str(e)
+                if "authentication" in error_msg.lower() or "api key" in error_msg.lower():
+                    st.error("❌ Invalid API key. Check your Anthropic API key.")
+                else:
+                    st.error(f"❌ Error: {error_msg}")
+
+    # Clear chat button
+    if st.session_state.chat_messages:
+        if st.button("🗑️ Clear Chat", key="clear_chat"):
+            st.session_state.chat_messages = []
+            st.rerun()
+
 st.markdown("""
 <style>
     .preview-box {

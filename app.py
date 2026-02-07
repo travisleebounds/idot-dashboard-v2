@@ -5,6 +5,7 @@ import pandas as pd
 import folium
 from streamlit_folium import folium_static
 from datetime import datetime
+import subprocess
 import os
 import json
 import glob
@@ -12,6 +13,84 @@ from PIL import Image
 from pathlib import Path
 import altair as alt
 
+# ─── Auto-bootstrap: run pipeline if data/ is empty ──────────────────
+@st.cache_resource(ttl=3600)  # Re-run at most once per hour
+def bootstrap_pipeline():
+    """Fetch boundary + road event data if not already cached."""
+    boundary_dir = "data/boundaries"
+    road_dir = "data/road"
+    os.makedirs(boundary_dir, exist_ok=True)
+    os.makedirs(road_dir, exist_ok=True)
+
+    boundary_count = len(glob.glob(os.path.join(boundary_dir, "*.geojson")))
+    road_count = len(glob.glob(os.path.join(road_dir, "*.json")))
+
+    ran_something = False
+
+    if boundary_count < 5 and os.path.exists("fetch_boundaries.py"):
+        try:
+            subprocess.run(
+                ["python", "fetch_boundaries.py"],
+                timeout=120, capture_output=True
+            )
+            ran_something = True
+        except Exception:
+            pass
+
+    if road_count < 3 and os.path.exists("fetch_road_events.py"):
+        try:
+            subprocess.run(
+                ["python", "fetch_road_events.py"],
+                timeout=300, capture_output=True
+            )
+            ran_something = True
+        except Exception:
+            pass
+
+    new_boundary = len(glob.glob(os.path.join(boundary_dir, "*.geojson")))
+    new_road = len(glob.glob(os.path.join(road_dir, "*.json")))
+    return {
+        "boundaries": new_boundary,
+        "road_events": new_road,
+        "ran": ran_something
+    }
+
+pipeline_status = bootstrap_pipeline()
+
+# ─── Load pipeline data helpers ───────────────────────────────────────
+def load_road_events(district_key):
+    """Load road event cache for a district."""
+    path = f"data/road/{district_key}.json"
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return None
+
+def load_all_road_events():
+    """Load all road event caches."""
+    events = {}
+    for path in sorted(glob.glob("data/road/*.json")):
+        key = os.path.basename(path).replace(".json", "")
+        with open(path) as f:
+            events[key] = json.load(f)
+    return events
+
+def load_members():
+    """Load the canonical member roster."""
+    if os.path.exists("members.json"):
+        with open("members.json") as f:
+            return json.load(f)
+    return None
+
+def load_boundary(district_key):
+    """Load GeoJSON boundary for a district."""
+    path = f"data/boundaries/{district_key}.geojson"
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return None
+
+members_data = load_members()
 
 st.markdown("""
 <style>
@@ -243,7 +322,8 @@ if 'selected_item' not in st.session_state:
 # Navigation — removed Live IDOT Map (iframe doesn't work reliably)
 view = st.radio(
     "Navigation",
-    ["🗺️ Statewide Map", "📍 District View", "📝 Meeting Memos",
+    ["🗺️ Statewide Map", "📍 District View", "🛣️ Live Road Events",
+     "📝 Meeting Memos",
      "💰 Federal Funding", "📊 AI Analysis", "💎 Discretionary Grants",
      "🔮 FY27 Projections", "🏛️ IL General Assembly", "🤖 AV Policy"],
     horizontal=True
@@ -608,6 +688,220 @@ elif view == "📝 Meeting Memos":
                     )
             else:
                 st.caption("⚠️ Memo file not found")
+
+
+# ==================== LIVE ROAD EVENTS ====================
+elif view == "🛣️ Live Road Events":
+    st.header("🛣️ Live Road Events — IDOT Construction, Closures & Restrictions")
+
+    # Pipeline status
+    if pipeline_status.get("road_events", 0) > 0:
+        st.success(f"✅ Pipeline loaded: {pipeline_status['boundaries']} boundaries, {pipeline_status['road_events']} district event files")
+    else:
+        st.warning("⚠️ Road event data not yet loaded. Pipeline scripts need to run — see PIPELINE_README.md")
+        st.info("To populate: run `python setup_pipeline.py` locally, then push the `data/` folder to the repo.")
+
+    # Geography selector
+    geo_tab = st.radio(
+        "Geography",
+        ["🏛️ Congressional (17)", "🏠 IL House (118)", "🏛️ IL Senate (59)", "⭐ US Senators (Statewide)"],
+        horizontal=True
+    )
+
+    if geo_tab == "⭐ US Senators (Statewide)":
+        st.subheader("⭐ Top 5 Statewide Road Issues — Senator Briefing")
+
+        sen_data = load_road_events("US-IL-SEN")
+        if sen_data:
+            col1, col2, col3 = st.columns(3)
+            counts = sen_data.get("counts", {})
+            col1.metric("🚧 Closures", counts.get("closures", 0))
+            col2.metric("⚠️ Restrictions", counts.get("restrictions", 0))
+            col3.metric("🏗️ Construction", counts.get("construction", 0))
+
+            st.markdown(f"**Last updated:** {sen_data.get('generated_at', 'unknown')[:19]}")
+            st.markdown("---")
+
+            st.markdown("### Top 5 Issues (by severity score)")
+            for i, event in enumerate(sen_data.get("top", [])[:5], 1):
+                severity = event.get("severity", 0)
+                badge = "🔴" if severity >= 70 else "🟠" if severity >= 40 else "🟡"
+
+                with st.expander(
+                    f"{badge} #{i} — {event.get('road', 'N/A')} | {event.get('type', '').title()} | Score: {severity}",
+                    expanded=(i <= 2)
+                ):
+                    c1, c2 = st.columns(2)
+                    c1.markdown(f"**Road:** {event.get('road', 'N/A')}")
+                    c1.markdown(f"**Location:** {event.get('location_text', 'N/A')}")
+                    c1.markdown(f"**County:** {event.get('county', 'N/A')}")
+                    c1.markdown(f"**Status:** {event.get('status', 'unknown').title()}")
+                    c2.markdown(f"**Type:** {event.get('type', 'N/A').title()}")
+                    c2.markdown(f"**Lanes:** {event.get('lanes', 'N/A')}")
+                    c2.markdown(f"**Start:** {(event.get('start') or 'N/A')[:10]}")
+                    c2.markdown(f"**End:** {(event.get('end') or 'N/A')[:10]}")
+                    st.markdown(f"**Description:** {event.get('description', 'N/A')}")
+                    if event.get("_source_district"):
+                        st.caption(f"Source district: {event['_source_district']}")
+                    if event.get("source_url"):
+                        st.markdown(f"[🔗 View Source]({event['source_url']})")
+        else:
+            st.info("No statewide data yet. Run the pipeline to populate.")
+
+    else:
+        # District-level view
+        if geo_tab.startswith("🏛️ Congressional"):
+            prefix = "US-IL-CD-"
+            max_num = 17
+            fmt_width = 2
+            label = "Congressional District"
+        elif geo_tab.startswith("🏠 IL House"):
+            prefix = "IL-H-"
+            max_num = 118
+            fmt_width = 3
+            label = "IL House District"
+        else:
+            prefix = "IL-S-"
+            max_num = 59
+            fmt_width = 3
+            label = "IL Senate District"
+
+        district_nums = list(range(1, max_num + 1))
+
+        selected_num = st.selectbox(
+            f"Select {label}:",
+            district_nums,
+            format_func=lambda n: f"{prefix}{n:0{fmt_width}d}" + (
+                f" — {members_data['congressional'].get(f'{prefix}{n:0{fmt_width}d}', {}).get('name', '')}"
+                if members_data and prefix == "US-IL-CD-"
+                else ""
+            )
+        )
+
+        district_key = f"{prefix}{selected_num:0{fmt_width}d}"
+        st.subheader(f"🛣️ {district_key}")
+
+        # Show member info if congressional
+        if members_data and prefix == "US-IL-CD-":
+            member = members_data.get("congressional", {}).get(district_key, {})
+            if member:
+                st.markdown(f"**Rep. {member.get('name', '')}** ({member.get('party', '')}) — {member.get('area', '')}")
+                st.caption(f"Committees: {', '.join(member.get('committees', []))}")
+
+        # Load road events
+        road_data = load_road_events(district_key)
+
+        if road_data:
+            col1, col2, col3, col4 = st.columns(4)
+            counts = road_data.get("counts", {})
+            col1.metric("🚧 Closures", counts.get("closures", 0))
+            col2.metric("⚠️ Restrictions", counts.get("restrictions", 0))
+            col3.metric("🏗️ Construction", counts.get("construction", 0))
+            col4.metric("📊 Total", road_data.get("total", 0))
+
+            st.markdown(f"**Last updated:** {road_data.get('generated_at', 'unknown')[:19]}")
+
+            # Map
+            boundary = load_boundary(district_key)
+            events_with_coords = [e for e in road_data.get("items", []) if e.get("lat") and e.get("lon")]
+
+            if boundary or events_with_coords:
+                st.markdown("---")
+                st.markdown("### District Map")
+
+                if events_with_coords:
+                    center_lat = sum(e["lat"] for e in events_with_coords) / len(events_with_coords)
+                    center_lon = sum(e["lon"] for e in events_with_coords) / len(events_with_coords)
+                else:
+                    center_lat, center_lon = 40.0, -89.0
+
+                m = folium.Map(location=[center_lat, center_lon], zoom_start=9)
+
+                if boundary:
+                    geom = boundary.get("geometry", {})
+                    if geom.get("type") == "Polygon":
+                        coords = [[c[1], c[0]] for c in geom["coordinates"][0]]
+                        folium.Polygon(coords, color="#4A90E2", fill=True, fillOpacity=0.1, weight=2).add_to(m)
+                    elif geom.get("type") == "MultiPolygon":
+                        for poly in geom["coordinates"]:
+                            coords = [[c[1], c[0]] for c in poly[0]]
+                            folium.Polygon(coords, color="#4A90E2", fill=True, fillOpacity=0.1, weight=2).add_to(m)
+
+                for event in events_with_coords[:50]:
+                    color = "red" if event.get("type") == "closure" else "orange" if event.get("type") == "restriction" else "blue"
+                    popup_text = f"<b>{event.get('road', 'N/A')}</b><br>{event.get('type', '').title()}<br>{event.get('description', '')[:100]}"
+                    folium.CircleMarker(
+                        [event["lat"], event["lon"]],
+                        radius=6, color=color, fill=True, fillOpacity=0.7,
+                        popup=folium.Popup(popup_text, max_width=250),
+                        tooltip=f"{event.get('road', '')} — {event.get('type', '')}"
+                    ).add_to(m)
+
+                folium_static(m, width=1400, height=500)
+
+            # Events table
+            st.markdown("---")
+            st.markdown("### All Events (sorted by severity)")
+
+            items = road_data.get("items", [])
+            if items:
+                table_data = []
+                for e in items[:100]:
+                    table_data.append({
+                        "Severity": e.get("severity", 0),
+                        "Type": e.get("type", "").title(),
+                        "Road": e.get("road", "N/A"),
+                        "Location": e.get("location_text", "N/A"),
+                        "County": e.get("county", "N/A"),
+                        "Status": e.get("status", "unknown").title(),
+                        "Description": (e.get("description") or "")[:80],
+                        "Start": (e.get("start") or "")[:10],
+                        "End": (e.get("end") or "")[:10],
+                    })
+                st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True, height=500)
+            else:
+                st.info("No events in this district")
+        else:
+            st.info(f"No road event data for {district_key}. Run the pipeline to populate.")
+            st.code("python setup_pipeline.py", language="bash")
+
+    # Overview table
+    st.markdown("---")
+    st.markdown("### 📊 Overview: Events by District")
+
+    if not geo_tab.startswith("⭐"):
+        if geo_tab.startswith("🏛️ Congressional"):
+            ov_prefix, ov_max, ov_fmt = "US-IL-CD-", 17, 2
+        elif geo_tab.startswith("🏠"):
+            ov_prefix, ov_max, ov_fmt = "IL-H-", 118, 3
+        else:
+            ov_prefix, ov_max, ov_fmt = "IL-S-", 59, 3
+
+        overview_data = []
+        for n in range(1, ov_max + 1):
+            dk = f"{ov_prefix}{n:0{ov_fmt}d}"
+            rd = load_road_events(dk)
+            if rd and rd.get("total", 0) > 0:
+                overview_data.append({
+                    "District": dk,
+                    "Closures": rd.get("counts", {}).get("closures", 0),
+                    "Restrictions": rd.get("counts", {}).get("restrictions", 0),
+                    "Construction": rd.get("counts", {}).get("construction", 0),
+                    "Total": rd.get("total", 0),
+                })
+
+        if overview_data:
+            df_overview = pd.DataFrame(overview_data)
+            st.dataframe(df_overview, use_container_width=True, hide_index=True)
+
+            chart = alt.Chart(df_overview).mark_bar().encode(
+                x=alt.X('District:N', sort='-y'),
+                y='Total:Q',
+                tooltip=['District', 'Closures', 'Restrictions', 'Construction', 'Total']
+            ).properties(height=300)
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.info("No event data available yet. Run the pipeline to populate.")
 
 
 # ==================== FEDERAL FUNDING ====================

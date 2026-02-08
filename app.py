@@ -1,16 +1,33 @@
 import re
 import streamlit as st
 st.set_page_config(page_title="Illinois Transportation Dashboard", page_icon="🔱", layout="wide")
+
 import pandas as pd
 import folium
 from streamlit_folium import folium_static
 from datetime import datetime
+import math
 import os
 import json
 import glob
 from PIL import Image
 from pathlib import Path
 import altair as alt
+
+# Validate essential files right at startup
+_essential_files = [
+    'members.json',
+    'illinois_general_assembly.json', 
+    'ncsl_av_complete.json',
+    'district_formula_allocations.json',
+    'discretionary_grants.json',
+]
+_missing = [f for f in _essential_files if not os.path.exists(f)]
+if _missing:
+    st.error(f"❌ Missing essential data files:\n\n" + "\n".join(f"  - {f}" for f in _missing))
+    st.info("Run the pipeline scripts to generate these files.")
+    st.stop()
+
 
 # ─── Check pipeline data status (no auto-run) ────────────────────────
 def _check_pipeline():
@@ -22,6 +39,26 @@ def _check_pipeline():
     }
 
 pipeline_status = _check_pipeline()
+
+# ─── Validate essential data files ────────────────────────────────────
+def _validate_essential_files():
+    """Check that all essential data files exist."""
+    essential_files = {
+        'members.json': 'Member roster',
+        'illinois_general_assembly.json': 'ILGA transportation bills',
+        'ncsl_av_complete.json': 'AV policy database',
+        'district_formula_allocations.json': 'Federal formula allocations',
+        'discretionary_grants.json': 'Discretionary grants data',
+    }
+    
+    missing = []
+    for filename, description in essential_files.items():
+        if not os.path.exists(filename):
+            missing.append(f"  - {filename} ({description})")
+    
+    if missing:
+        st.error(f"⚠️ Missing essential data files:\n\n" + "\n".join(missing))
+        st.stop()
 
 # ─── Load pipeline data helpers ───────────────────────────────────────
 def load_road_events(district_key):
@@ -57,6 +94,131 @@ def load_boundary(district_key):
     return None
 
 members_data = load_members()
+
+def display_federal_funding_for_district(cong_key: str):
+    """
+    Display federal funding data (formula allocations and discretionary grants) for a congressional district.
+    Called from District View and State Legislators profiles.
+    """
+    st.markdown(f"### 💰 Federal Funding Data (Congressional District {cong_key})")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    # Formula allocations
+    try:
+        with open('district_formula_allocations.json', 'r') as f:
+            formula = json.load(f)
+        
+        if cong_key in formula.get('district_allocations', {}):
+            alloc = formula['district_allocations'][cong_key]
+            col1.metric("Total Formula", f"${alloc['total_formula_est']/1e6:.1f}M")
+            col2.metric("STBG", f"${alloc['stbg_formula']/1e6:.1f}M")
+            col3.metric("NHPP", f"${alloc['nhpp_est']/1e6:.1f}M")
+            
+            # More details as expander
+            with st.expander("💼 Formula Allocation Details"):
+                detail_cols = st.columns(2)
+                with detail_cols[0]:
+                    st.markdown(f"**District:** {cong_key}")
+                    st.markdown(f"**Representative:** {alloc.get('representative', 'N/A')}")
+                with detail_cols[1]:
+                    st.markdown(f"**Per Capita (est.):** ${alloc['per_capita']:.0f}")
+                    st.markdown(f"**Population:** {alloc.get('population', 'N/A'):,}")
+        else:
+            st.info(f"No formula allocation data for {cong_key}")
+    except FileNotFoundError:
+        st.warning("district_formula_allocations.json not found")
+    except Exception as e:
+        st.error(f"Error loading formula data: {e}")
+    
+    st.markdown("---")
+    
+    # Discretionary grants
+    try:
+        with open('discretionary_grants.json', 'r') as f:
+            grants_data = json.load(f)
+        
+        related = [g for g in grants_data.get('grants', []) if g.get('district') == cong_key]
+        
+        if related:
+            # Summary metrics
+            total_grants = sum(g.get('amount', 0) for g in related)
+            recent_grants = [g for g in related if g.get('year', 0) >= 2023]
+            
+            grant_cols = st.columns(3)
+            grant_cols[0].metric("Total Discretionary Grants", f"${total_grants/1e6:.1f}M")
+            grant_cols[1].metric("Number of Awards", len(related))
+            grant_cols[2].metric("Recent (2023+)", len(recent_grants))
+            
+            # Breakdown by year and program
+            st.markdown("**Grant Awards Breakdown**")
+            
+            tab_grants, tab_programs = st.tabs(["📅 By Year", "📊 By Program"])
+            
+            with tab_grants:
+                by_year = {}
+                for g in related:
+                    year = g.get('year', 'Unknown')
+                    if year not in by_year:
+                        by_year[year] = 0
+                    by_year[year] += g.get('amount', 0)
+                
+                for year in sorted(by_year.keys(), reverse=True):
+                    st.markdown(f"**{year}:** ${by_year[year]/1e6:.2f}M")
+                
+                # Year-by-year chart
+                chart_df = pd.DataFrame([
+                    {'Year': str(year), 'Amount': amount} 
+                    for year, amount in sorted(by_year.items())
+                ])
+                if not chart_df.empty:
+                    chart = alt.Chart(chart_df).mark_bar().encode(
+                        x=alt.X('Year:N', title='Year'),
+                        y=alt.Y('Amount:Q', axis=alt.Axis(format='$,.0f'), title='Grant Amount'),
+                        tooltip=['Year', alt.Tooltip('Amount:Q', format='$,.0f')]
+                    ).properties(height=300)
+                    st.altair_chart(chart, use_container_width=True)
+            
+            with tab_programs:
+                by_program = {}
+                for g in related:
+                    prog = g.get('program', 'Unknown')
+                    if prog not in by_program:
+                        by_program[prog] = {'count': 0, 'amount': 0}
+                    by_program[prog]['count'] += 1
+                    by_program[prog]['amount'] += g.get('amount', 0)
+                
+                prog_list = []
+                for prog, data in sorted(by_program.items(), key=lambda x: x[1]['amount'], reverse=True):
+                    prog_list.append({
+                        'Program': prog,
+                        'Awards': data['count'],
+                        'Total': f"${data['amount']/1e6:.2f}M"
+                    })
+                
+                st.dataframe(pd.DataFrame(prog_list), use_container_width=True, hide_index=True)
+            
+            # Top awards table
+            st.markdown("**Top Discretionary Grants (by amount)**")
+            top_grants = sorted(related, key=lambda x: x.get('amount', 0), reverse=True)[:15]
+            
+            grant_table = []
+            for g in top_grants:
+                grant_table.append({
+                    'Year': g.get('year', 'N/A'),
+                    'Program': g.get('program', 'N/A'),
+                    'Amount': f"${g.get('amount', 0):,.0f}",
+                    'Project': (g.get('project', 'N/A') or 'N/A')[:80]
+                })
+            
+            st.dataframe(pd.DataFrame(grant_table), use_container_width=True, hide_index=True, height=300)
+        else:
+            st.info(f"No discretionary grants found for {cong_key}")
+    
+    except FileNotFoundError:
+        st.warning("discretionary_grants.json not found")
+    except Exception as e:
+        st.error(f"Error loading grants data: {e}")
 
 # ─── Sidebar Chatbot ──────────────────────────────────────────────────
 def build_dashboard_context():
@@ -448,14 +610,45 @@ if 'selected_item' not in st.session_state:
     st.session_state.selected_item = None
 
 # Navigation — removed Live IDOT Map (iframe doesn't work reliably)
-view = st.radio(
-    "Navigation",
-    ["🗺️ Statewide Map", "📍 District View", "🛣️ Live Road Events",
+# Initialize pending navigation if not set
+if '_pending_nav' not in st.session_state:
+    st.session_state['_pending_nav'] = None
+if '_pending_chamber' not in st.session_state:
+    st.session_state['_pending_chamber'] = None
+if '_pending_num' not in st.session_state:
+    st.session_state['_pending_num'] = None
+if '_current_view' not in st.session_state:
+    st.session_state['_current_view'] = "🗺️ Statewide Map"  # Default view
+
+# Check for pending navigation requests (from IL General Assembly buttons)
+nav_options = ["🗺️ Statewide Map", "📍 District View", "🛣️ Live Road Events",
      "📝 Meeting Memos",
      "💰 Federal Funding", "📊 AI Analysis", "💎 Discretionary Grants",
-     "🔮 FY27 Projections", "🏛️ IL General Assembly", "🤖 AV Policy"],
-    horizontal=True
+     "🔮 FY27 Projections", "🏛️ IL General Assembly", "🤖 AV Policy", "👥 State Legislators"]
+
+# Handle pending navigation
+if st.session_state['_pending_nav']:
+    st.session_state['_current_view'] = st.session_state['_pending_nav']
+    st.session_state['_pending_nav'] = None  # Clear pending nav
+    if st.session_state['_pending_chamber']:
+        st.session_state['_selected_chamber'] = st.session_state['_pending_chamber']
+        st.session_state['_pending_chamber'] = None
+    if st.session_state['_pending_num']:
+        st.session_state['_selected_num'] = st.session_state['_pending_num']
+        st.session_state['_pending_num'] = None
+
+# Determine index for radio button
+current_index = nav_options.index(st.session_state['_current_view']) if st.session_state['_current_view'] in nav_options else 0
+
+view = st.radio(
+    "Navigation",
+    nav_options,
+    horizontal=True,
+    index=current_index
 )
+
+# Update current view and persist it
+st.session_state['_current_view'] = view
 
 # ==================== STATEWIDE MAP ====================
 if view == "🗺️ Statewide Map":
@@ -740,6 +933,256 @@ elif view == "📍 District View":
                 st.info("No bills tracked (run get_bills.py to fetch)")
     else:
         st.info("👈 Select a district from the sidebar")
+
+
+# ==================== STATE LEGISLATORS ====================
+elif view == "👥 State Legislators":
+    st.header("👥 Illinois State Legislators — Profiles")
+
+    # Keep state variables for navigation
+    if '_selected_chamber' not in st.session_state:
+        st.session_state['_selected_chamber'] = "IL House (118)"
+    if '_selected_num' not in st.session_state:
+        st.session_state['_selected_num'] = None
+
+    # If coming from IL General Assembly without a selection, show directory first
+    has_selection = st.session_state.get('_selected_num') is not None
+    
+    if not has_selection:
+        # Show chamber selector and directory
+        chamber = st.radio(
+            "Chamber:", 
+            ["IL House (118)", "IL Senate (59)"], 
+            horizontal=True,
+            index=0 if st.session_state['_selected_chamber'].startswith("IL House") else 1
+        )
+        st.session_state['_selected_chamber'] = chamber
+        
+        if chamber.startswith("IL House"):
+            prefix = "IL-H-"
+            max_num = 118
+            fmt = 3
+            chamber_label = "IL House District"
+        else:
+            prefix = "IL-S-"
+            max_num = 59
+            fmt = 3
+            chamber_label = "IL Senate District"
+
+        # Directory with clickable buttons + selectbox
+        district_nums = list(range(1, max_num + 1))
+
+        st.markdown("### Select a Member")
+        st.markdown("**Directory — click any district to open its profile**")
+        cols = st.columns(6)
+        for idx, n in enumerate(district_nums):
+            col = cols[idx % 6]
+            label = f"{prefix}{n:0{fmt}d}"
+            
+            def make_click_handler(n=n):
+                def handler():
+                    st.session_state['_selected_chamber'] = chamber
+                    st.session_state['_selected_num'] = n
+                    st.rerun()
+                return handler
+            
+            col.button(
+                label, 
+                key=f"dir_{prefix}_{n}",
+                on_click=make_click_handler()
+            )
+
+        st.markdown("---")
+        st.markdown("**Or search by name:**")
+        selected_num = st.selectbox(
+            f"Pick a {chamber_label}:", 
+            district_nums,
+            index=0,
+            format_func=lambda n: f"{prefix}{n:0{fmt}d}"
+        )
+        
+        if st.button("View Profile", key="view_profile_btn"):
+            st.session_state['_selected_num'] = selected_num
+            st.rerun()
+        st.stop()
+    
+    # If we get here, we have a selection - show the profile
+    chamber = st.session_state['_selected_chamber']
+    selected_num = st.session_state['_selected_num']
+    
+    if chamber.startswith("IL House"):
+        prefix = "IL-H-"
+        fmt = 3
+        chamber_label = "IL House District"
+    else:
+        prefix = "IL-S-"
+        fmt = 3
+        chamber_label = "IL Senate District"
+
+    district_key = f"{prefix}{int(selected_num):0{fmt}d}"
+    
+    # Add button to go back to directory
+    col_back, col_chamber = st.columns([1, 3])
+    with col_back:
+        if st.button("← Back to Directory"):
+            st.session_state['_selected_num'] = None
+            st.rerun()
+    with col_chamber:
+        st.markdown(f"**Viewing:** {district_key}")
+
+    # Try to get member details from members.json if available
+    member_info = {}
+    try:
+        if members_data:
+            if chamber.startswith("IL House") and 'il_house' in members_data:
+                member_info = members_data['il_house'].get(district_key, {})
+            if chamber.startswith("IL Senate") and 'il_senate' in members_data:
+                member_info = members_data['il_senate'].get(district_key, {})
+    except:
+        member_info = {}
+
+    member_name = member_info.get('name', f"{chamber_label} {selected_num:0{fmt}d}")
+    party = member_info.get('party', '?')
+    party_emoji = '🔵 Democrat' if party == 'D' else '🔴 Republican' if party == 'R' else '⚪ Unknown'
+    area = member_info.get('area', '')
+    
+    st.subheader(f"{district_key} — {member_name}")
+    col_info1, col_info2, col_info3 = st.columns(3)
+    col_info1.metric("Party", party_emoji)
+    col_info2.metric("Chamber", chamber.split("(")[0].strip())
+    if area:
+        col_info3.metric("Area", area)
+    st.markdown("---")
+
+    # Summary card
+    if member_info.get('name'):
+        summary_text = f"**{member_name}** represents {area or 'Illinois'}"
+        st.info(summary_text)
+
+    # Load road events (state-level pipeline supports IL-H- and IL-S- keys)
+    road_data = load_road_events(district_key)
+
+    if road_data:
+        counts = road_data.get('counts', {})
+        col1, col2, col3 = st.columns(3)
+        col1.metric("🚧 Closures", counts.get('closures', 0))
+        col2.metric("⚠️ Restrictions", counts.get('restrictions', 0))
+        col3.metric("🏗️ Construction", counts.get('construction', 0))
+
+        st.markdown(f"**Last updated:** {road_data.get('generated_at', 'unknown')[:19]}")
+
+        # Map events
+        events_with_coords = [e for e in road_data.get('items', []) if e.get('lat') and e.get('lon')]
+        if events_with_coords:
+            center_lat = sum(e['lat'] for e in events_with_coords) / len(events_with_coords)
+            center_lon = sum(e['lon'] for e in events_with_coords) / len(events_with_coords)
+            m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+            for e in events_with_coords[:200]:
+                color = 'red' if e.get('type') == 'closure' else 'orange' if e.get('type') == 'restriction' else 'blue'
+                popup_text = f"<b>{e.get('road','N/A')}</b><br>{e.get('type','').title()}<br>{(e.get('description') or '')[:120]}"
+                folium.CircleMarker([e['lat'], e['lon']], radius=6, color=color, fill=True, popup=folium.Popup(popup_text, max_width=300)).add_to(m)
+            folium_static(m, width=1200, height=420)
+
+        st.markdown("---")
+        st.markdown("### All Events")
+        items = road_data.get('items', [])
+        if items:
+            table_data = []
+            for e in items[:200]:
+                table_data.append({
+                    'Severity': e.get('severity', 0),
+                    'Type': e.get('type', '').title(),
+                    'Road': e.get('road', 'N/A'),
+                    'Location': e.get('location_text', 'N/A'),
+                    'County': e.get('county', 'N/A'),
+                    'Status': e.get('status', 'unknown').title(),
+                    'Start': (e.get('start') or '')[:10],
+                    'End': (e.get('end') or '')[:10],
+                })
+            st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True, height=360)
+        else:
+            st.info("No events found in this district's road feed.")
+    else:
+        # Fallback: show construction data from mapped congressional district
+        try:
+            if prefix.startswith('IL-H'):
+                total_state = 118
+            else:
+                total_state = 59
+            congress_idx = math.ceil(selected_num / (total_state / 17.0))
+            congress_idx = max(1, min(17, int(congress_idx)))
+            cong_key = f"IL-{congress_idx:02d}"
+            
+            if cong_key in DISTRICTS:
+                cong_info = DISTRICTS[cong_key]
+                
+                closures = cong_info.get('closures', [])
+                construction = cong_info.get('construction', [])
+                
+                col1, col2 = st.columns(2)
+                col1.metric("🚧 Closures", len(closures))
+                col2.metric("🏗️ Construction", len(construction))
+                
+                st.markdown(f"*Data from mapped congressional district {cong_key}*")
+                st.markdown("---")
+                
+                # Construction details
+                if construction or closures:
+                    tab_closures, tab_construction = st.tabs(["🚧 Closures", "🏗️ Construction"])
+                    
+                    with tab_closures:
+                        if closures:
+                            for idx, c in enumerate(closures):
+                                with st.expander(f"🚧 {c.get('route', 'N/A')} - {c.get('location', 'N/A')}"):
+                                    col_a, col_b = st.columns(2)
+                                    with col_a:
+                                        st.markdown(f"**Route:** {c.get('route', 'N/A')}")
+                                        st.markdown(f"**Type:** {c.get('type', 'N/A')}")
+                                        st.markdown(f"**Status:** {c.get('status', 'N/A')}")
+                                    with col_b:
+                                        st.markdown(f"**Location:** {c.get('location', 'N/A')}")
+                                    st.markdown(f"**Details:** {c.get('description', 'No details available')}")
+                        else:
+                            st.info("No active closures")
+                    
+                    with tab_construction:
+                        if construction:
+                            for idx, c in enumerate(construction):
+                                with st.expander(f"🏗️ {c.get('route', 'N/A')} - {c.get('location', 'N/A')}"):
+                                    col_a, col_b = st.columns(2)
+                                    with col_a:
+                                        st.markdown(f"**Route:** {c.get('route', 'N/A')}")
+                                        st.markdown(f"**Type:** {c.get('type', 'N/A')}")
+                                        st.markdown(f"**Status:** {c.get('status', 'N/A')}")
+                                    with col_b:
+                                        st.markdown(f"**Location:** {c.get('location', 'N/A')}")
+                                        if c.get('budget'):
+                                            st.markdown(f"**Budget:** {c.get('budget', 'N/A')}")
+                                        if c.get('timeline'):
+                                            st.markdown(f"**Timeline:** {c.get('timeline', 'N/A')}")
+                                    st.markdown(f"**Details:** {c.get('description', 'No details available')}")
+                        else:
+                            st.info("No active construction")
+                else:
+                    st.info("No closures or construction projects in the mapped congressional district")
+        except Exception as e:
+            st.info(f"No road event data for this state legislative district. (Run pipeline to populate `data/road` files or try the main District View)")
+
+    # Heuristic: map state district to a congressional district to show federal formula & discretionary grants
+    # This is a coarse mapping (state districts -> 17 congressional districts by index scaling)
+    try:
+        if prefix.startswith('IL-H'):
+            total_state = 118
+        else:
+            total_state = 59
+        congress_idx = math.ceil(selected_num / (total_state / 17.0))
+        congress_idx = max(1, min(17, int(congress_idx)))
+        cong_key = f"IL-{congress_idx:02d}"
+
+        st.markdown('---')
+        display_federal_funding_for_district(cong_key)
+    except Exception as e:
+        st.error(f"Error computing related federal funding: {e}")
 
 
 # ==================== MEETING MEMOS ====================
@@ -1309,11 +1752,83 @@ elif view == "🏛️ IL General Assembly":
                 st.info("No transportation bills tracked yet")
         
         with tab2:
-            st.subheader("Key Transportation Committee Members")
-            st.info("Coming soon: Full legislator directory with district overlap analysis")
+            st.subheader("🏛️ IL House & Senate Members")
+            st.markdown("**Click to open a legislator's profile:**")
+
+            # Load member data
+            try:
+                with open('members.json', 'r') as f:
+                    members_data = json.load(f)
+                il_house = members_data.get('il_house', {})
+                il_senate = members_data.get('il_senate', {})
+            except:
+                il_house = {}
+                il_senate = {}
+                st.warning("Could not load member roster")
+
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.markdown("**Illinois House (118 districts)**")
+                house_options = []
+                for key, member in sorted(il_house.items()):
+                    dist_num = member.get('district', int(key.split('-')[-1]))
+                    name = member.get('name', 'Unknown')
+                    party = member.get('party', '?')
+                    party_label = '🔵 D' if party == 'D' else '🔴 R'
+                    display = f"{name} - IL-H-{dist_num:03d} ({party_label})"
+                    house_options.append((dist_num, display))
+                
+                house_options.sort()
+                if house_options:
+                    selected_house = st.selectbox(
+                        "Select Representative:",
+                        [opt[0] for opt in house_options],
+                        format_func=lambda x: next((opt[1] for opt in house_options if opt[0] == x), f"IL-H-{x:03d}"),
+                        key="il_house_select"
+                    )
+                    
+                    def navigate_to_house_profile():
+                        st.session_state['_pending_nav'] = '👥 State Legislators'
+                        st.session_state['_pending_chamber'] = 'IL House (118)'
+                        st.session_state['_pending_num'] = selected_house
+                        st.rerun()
+                    
+                    st.button("📍 Open House Profile", key="il_house_btn", on_click=navigate_to_house_profile)
+
+            with col_b:
+                st.markdown("**Illinois Senate (59 districts)**")
+                senate_options = []
+                for key, member in sorted(il_senate.items()):
+                    dist_num = member.get('district', int(key.split('-')[-1]))
+                    name = member.get('name', 'Unknown')
+                    party = member.get('party', '?')
+                    party_label = '🔵 D' if party == 'D' else '🔴 R'
+                    display = f"{name} - IL-S-{dist_num:03d} ({party_label})"
+                    senate_options.append((dist_num, display))
+                
+                senate_options.sort()
+                if senate_options:
+                    selected_senate = st.selectbox(
+                        "Select Senator:",
+                        [opt[0] for opt in senate_options],
+                        format_func=lambda x: next((opt[1] for opt in senate_options if opt[0] == x), f"IL-S-{x:03d}"),
+                        key="il_senate_select"
+                    )
+                    
+                    def navigate_to_senate_profile():
+                        st.session_state['_pending_nav'] = '👥 State Legislators'
+                        st.session_state['_pending_chamber'] = 'IL Senate (59)'
+                        st.session_state['_pending_num'] = selected_senate
+                        st.rerun()
+                    
+                    st.button("📍 Open Senate Profile", key="il_senate_btn", on_click=navigate_to_senate_profile)
     
-    except:
-        st.error("⚠️ Illinois GA data not loaded. Run: python3 scrape_ilga.py")
+    except Exception as e:
+        import traceback
+        error_msg = traceback.format_exc()
+        st.error(f"⚠️ Illinois GA data not loaded. Error:\n\n```\n{error_msg}\n```")
+        st.info("💡 Try running: `python3 scrape_ilga.py` in the terminal")
 
 
 # ==================== AV POLICY ====================
@@ -1321,14 +1836,22 @@ elif view == "🤖 AV Policy":
     st.header("🚗 Autonomous Vehicle Policy - 50 State Tracker")
     
     av_states = {'passed': {}, 'active': {}}
-    
+
     try:
         with open('ncsl_av_complete.json', 'r') as f:
             ncsl_data = json.load(f)
-            
+
         for state_name, state_info in ncsl_data.get('states', {}).items():
-            if state_info.get('type') != 'No Legislation' and state_info.get('year') != 'N/A':
+            # If there are active bills listed, treat as active/pending
+            if state_info.get('active_bills'):
+                av_states['active'][state_name] = state_info
+            # If the state has a year (not 'N/A'), consider it enacted/passed
+            elif state_info.get('year') and state_info.get('year') != 'N/A':
                 av_states['passed'][state_name] = state_info
+            # If type indicates Testing/Study/Executive Order but no year, consider passed-ish
+            elif state_info.get('type') in ('Testing', 'Executive Order', 'Comprehensive', 'Study'):
+                av_states['passed'][state_name] = state_info
+            # otherwise leave as no activity
     except FileNotFoundError:
         st.warning("⚠️ NCSL AV data file not found. Showing empty tracker.")
     except Exception as e:
